@@ -60,6 +60,7 @@ import {
 } from "./services/autoSafety.js";
 import { appendExecutionTelemetry, getExecutionTelemetryStats, listExecutionTelemetry } from "./services/executionTelemetry.js";
 import { flushExecutionTelemetry } from "./services/executionTelemetry.js";
+import { buildBlockingSummary } from "./services/diagnostics/blockingSummary.js";
 import {
   applyProfileConfidence,
   buildSignalConfigForProfile,
@@ -3734,6 +3735,19 @@ function handleAutoStatus(res) {
       reason: autoRuntime.lastEntryLocationDiagnostics.reason
     } : null,
     noActionableSignalDiagnostics: autoRuntime.lastNoActionableSignalDiagnostics,
+    blockingSummary: buildBlockingSummary({
+      lastAction: autoRuntime.lastAction,
+      lastSkipReason: autoRuntime.lastSkipReason,
+      decisionTrace: autoRuntime.lastDecisionTrace,
+      noActionableSignalDiagnostics: autoRuntime.lastNoActionableSignalDiagnostics,
+      entryEvidenceBreakdown: autoRuntime.lastEntryEvidenceBreakdown,
+      entryEvidenceScore: Number(autoRuntime.lastEntryEvidenceBreakdown?.totalScore || 0),
+      preTradeGuard: autoRuntime.lastPreTradeGuard,
+      contextValidationGate: autoRuntime.lastContextValidation,
+      contextValidation: autoRuntime.lastContextValidation,
+      positionSizingDiagnostics,
+      finalSizingGuard: autoRuntime.lastFinalSizingGuard
+    }),
     sizingTrace: autoRuntime.lastSizingTrace,
     earlyAdverseExitDiagnostics: autoRuntime.lastEarlyAdverseExitDiagnostics,
     fastPeakProtectDiagnostics: autoRuntime.lastFastPeakProtectDiagnostics,

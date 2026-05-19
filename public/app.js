@@ -94,11 +94,13 @@ function getActiveExecutionModeForView() {
 }
 
 function fmt(n, digits = 2) {
+  if (window.formatNumber) return window.formatNumber(n, digits);
   if (n === null || n === undefined || Number.isNaN(Number(n))) return "-";
   return Number(n).toFixed(digits);
 }
 
 function formatJPY(value, options = {}) {
+  if (window.formatJpy) return window.formatJpy(value, options);
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   const prefix = options.approx ? "約" : "";
@@ -117,6 +119,7 @@ function formatUnits(units) {
 }
 
 function formatPercent(value, digits = 1) {
+  if (window.formatPercentValue) return window.formatPercentValue(value, digits);
   const n = Number(value);
   if (!Number.isFinite(n)) return "-";
   return `${fmt(n * 100, digits)}%`;
@@ -274,7 +277,7 @@ function scoreLevel(score) {
 }
 
 function setToneText(id, value, toneValue = value) {
-  const el = $(id);
+  const el = window.getElSafe ? window.getElSafe(id) : $(id);
   if (!el) return;
   el.textContent = value;
   el.classList.remove("tone-good", "tone-sell", "tone-bad", "tone-warn", "tone-info", "tone-neutral");
@@ -381,6 +384,10 @@ async function json(url, options) {
 }
 
 function setText(id, value) {
+  if (window.setTextSafe) {
+    window.setTextSafe(id, value);
+    return;
+  }
   const el = $(id);
   if (el) el.textContent = value;
 }
@@ -534,29 +541,29 @@ function renderQuoteBoard(mid, spreadPips) {
 
 function renderSignal(s) {
   const actionEl = $("action");
-  actionEl.textContent = actionJa(s.action);
+  setText("action", actionJa(s.action));
   applySignalTone(actionEl, s.action);
-  $("confidence").textContent = fmt((s.confidence || 0) * 100, 1) + "%";
-  $("regime").textContent = regimeJa(s.regime);
+  setText("confidence", fmt((s.confidence || 0) * 100, 1) + "%");
+  setText("regime", regimeJa(s.regime));
   setText("signalUpdatedAt", s.ts ? formatJstDateTime(new Date(s.ts)) : "-");
   setText("signalMarketTs", s.marketTimestamp ? formatJstDateTime(new Date(s.marketTimestamp)) : "-");
   setText("signalInputHash", s.decisionInputHash ? String(s.decisionInputHash).slice(0, 12) : "-");
-  $("rationale").textContent = rationaleJa(s.rationale || "-");
+  setText("rationale", rationaleJa(s.rationale || "-"));
   renderHoldReasonTags(s);
-  $("entry").textContent = fmt(s.entryPrice, 3);
-  $("sl").textContent = fmt(s.stopLossPrice, 3);
-  $("tp").textContent = fmt(s.takeProfitPrice, 3);
-  $("learning").textContent = s.adaptive
+  setText("entry", fmt(s.entryPrice, 3));
+  setText("sl", fmt(s.stopLossPrice, 3));
+  setText("tp", fmt(s.takeProfitPrice, 3));
+  setText("learning", s.adaptive
     ? `学習サンプル=${fmt(s.adaptive.sampleSize, 0)} / 期待損益=${fmt(s.adaptive.expectancyJpy, 1)}円 / リスク補正=${fmt(s.adaptive.riskMultiplier, 2)}倍`
-    : "-";
+    : "-");
   const newsBiasEl = $("newsBias");
   if (s.news) {
     const direction = String(s.news.directionBias || "NEUTRAL");
     const icon = direction === "BUY" ? "▲" : (direction === "SELL" ? "▼" : "■");
-    newsBiasEl.textContent = `${icon}${actionJa(direction)}（ニューススコア=${fmt(s.news.score, 2)} / 短期リスク=${fmt((s.news.shortTermRiskLevel || 0) * 100, 0)}%）`;
+    setText("newsBias", `${icon}${actionJa(direction)}（ニューススコア=${fmt(s.news.score, 2)} / 短期リスク=${fmt((s.news.shortTermRiskLevel || 0) * 100, 0)}%）`);
     applySignalTone(newsBiasEl, direction);
   } else {
-    newsBiasEl.textContent = "-";
+    setText("newsBias", "-");
     applySignalTone(newsBiasEl, "NEUTRAL");
   }
 }
@@ -615,8 +622,8 @@ function formatSkipReasonTop(summary, status = null) {
 }
 
 function renderAccount(a) {
-  $("initial").textContent = fmt(a.initialBalanceJpy, 0);
-  $("current").textContent = fmt(a.currentBalanceJpy, 0);
+  setText("initial", fmt(a.initialBalanceJpy, 0));
+  setText("current", fmt(a.currentBalanceJpy, 0));
   const dayPnlEl = $("dayPnl");
   if (dayPnlEl) {
     const v = Number(a.dayPnlJpy || 0);
@@ -627,10 +634,10 @@ function renderAccount(a) {
 }
 
 function renderSummary(m) {
-  $("mTrades").textContent = m.totalTrades;
-  $("mWinRate").textContent = fmt((m.winRate || 0) * 100, 1) + "%";
-  $("mNet").textContent = fmt(m.netProfitJpy, 0);
-  $("mPf").textContent = m.profitFactor === null ? "-" : fmt(m.profitFactor, 2);
+  setText("mTrades", m.totalTrades);
+  setText("mWinRate", fmt((m.winRate || 0) * 100, 1) + "%");
+  setText("mNet", fmt(m.netProfitJpy, 0));
+  setText("mPf", m.profitFactor === null ? "-" : fmt(m.profitFactor, 2));
 }
 
 function renderEventImpact(data) {
@@ -1906,7 +1913,8 @@ async function refreshAutoStatus() {
   const lastRunText = st.lastRunAt ? formatJstDateTime(new Date(st.lastRunAt)) : "-";
   const market = st.marketStatus || {};
   const marketHint = market.source ? ` / ${market.fxOpen ? "市場OPEN" : "市場CLOSE"} / ${market.source}` : "";
-  $("autoLast").textContent = `${lastRunText} / ${action}${cooldown}${rescue}${reason}${marketHint}`;
+  setText("autoLast", `${lastRunText} / ${action}${cooldown}${rescue}${reason}${marketHint}`);
+  window.renderBlockingSummary?.(st.blockingSummary);
   const guard = $("autoGuard");
   if (guard) {
     const warmup = Number(st.rollbackWarmupSec || 0);
