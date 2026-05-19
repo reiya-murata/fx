@@ -7,6 +7,7 @@
     "test": "node --test",
     "demo": "node src/demo.js",
     "start": "node src/server.js",
+    "start:paper": "MARKET_HTTP_TICK_STALE_MS=20000 node src/server.js",
     "retrain:bandit": "node scripts/retrain-bandit.js",
     "backtest:summary": "node scripts/backtest-summary.js",
     "backtest:wfa": "node scripts/walkforward-report.js",
