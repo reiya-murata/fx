@@ -14,7 +14,11 @@ function hasMostlyEnglish(text) {
   return asciiLetters >= 12 && asciiLetters > japanese;
 }
 
-function suggestedFixFor({ finalCategory, finalBlockStage, preTradeGuardAllowed, positionSizingBlockedReason }) {
+function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTradeGuardAllowed, positionSizingBlockedReason }) {
+  const reason = String(finalReason || "");
+  if (reason.includes("LIVE_DISCONNECTED") || reason.includes("リアルタイム未接続")) {
+    return "リアルタイム価格ソース、marketStatus.realtime、tickerのbid/askを確認してください";
+  }
   if (finalCategory === "PROBE_CANDIDATE") {
     return "PROBE候補は実行対象にせず、記録専用にするか基準を再確認してください";
   }
@@ -75,6 +79,7 @@ export function buildBlockingSummary(input = {}) {
     suggestedFix: suggestedFixFor({
       finalCategory,
       finalBlockStage,
+      finalReason,
       preTradeGuardAllowed,
       positionSizingBlockedReason
     })

@@ -51,6 +51,20 @@
 
         <article class="panel auto-panel">
           <h2>自動売買</h2>
+          <section class="blocking-summary-card" aria-label="停止理由サマリー">
+            <div class="blocking-summary-head">
+              <span>停止理由サマリー</span>
+              <strong id="blockingStage">-</strong>
+            </div>
+            <div class="blocking-summary-grid mono">
+              <div><span>最終判断</span><strong id="blockingFinalAction">-</strong></div>
+              <div><span>候補アクション</span><strong id="blockingCandidateAction">-</strong></div>
+              <div><span>スコア</span><strong id="blockingScore">-</strong></div>
+              <div><span>カテゴリ</span><strong id="blockingCategory">-</strong></div>
+              <div class="wide reason"><span>停止理由</span><strong id="blockingReasonJa">-</strong></div>
+              <div class="wide fix"><span>次に見る場所</span><strong id="blockingSuggestedFix">-</strong></div>
+            </div>
+          </section>
           <div class="auto-overview mono">
             <div class="auto-status-line">
               <span>状態</span>
@@ -153,7 +167,8 @@
               <p class="mono">学習/ニュース反映: システム自動運用</p>
               <p class="mono auto-live-warning" id="autoLiveWarning">本番は未有効</p>
             </div>
-            <div class="auto-status-block">
+            <details class="auto-status-block" open>
+              <summary>詳細診断</summary>
               <div class="auto-section">
                 <h4>A. 現在の判断</h4>
                 <dl class="status-grid mono">
@@ -204,7 +219,7 @@
                 <p id="slFallbackWarning" class="warning-banner" style="display:none;">PAPER_LIVEではfallback SL使用中。LIVEではブロック対象です。</p>
                 <p id="leverageLimitWarning" class="warning-banner" style="display:none;">レバレッジ上限付近。数量は上限で調整されています</p>
               </div>
-            </div>
+            </details>
           </div>
         </article>
 
@@ -216,7 +231,11 @@
           <p class="mono">更新時刻: <span id="signalUpdatedAt">-</span></p>
           <p class="mono">市場時刻: <span id="signalMarketTs">-</span></p>
           <p class="mono">判定ID: <span id="signalInputHash">-</span></p>
-          <p id="rationale">-</p>
+          <p id="signalShortReason" class="signal-short-reason">-</p>
+          <details class="signal-details">
+            <summary>詳細を見る</summary>
+            <p id="rationale">-</p>
+          </details>
           <div class="reason-tags" id="holdReasonTags"></div>
           <p class="mono">エントリー: <span id="entry">-</span></p>
           <p class="mono">SL: <span id="sl">-</span> / TP: <span id="tp">-</span></p>

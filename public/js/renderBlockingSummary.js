@@ -1,10 +1,13 @@
 (function () {
   window.renderBlockingSummary = function renderBlockingSummary(summary) {
     if (!summary) return;
-    window.setTextSafe?.("blockingFinalAction", summary.finalAction);
-    window.setTextSafe?.("blockingCandidateAction", summary.candidateAction);
-    window.setTextSafe?.("blockingStage", summary.finalBlockStage);
-    window.setTextSafe?.("blockingReasonJa", summary.reasonJa || summary.finalReason);
-    window.setTextSafe?.("blockingSuggestedFix", summary.suggestedFix);
+    const text = (value) => value === null || value === undefined || value === "" ? "-" : value;
+    window.setTextSafe?.("blockingFinalAction", text(summary.finalAction));
+    window.setTextSafe?.("blockingCandidateAction", text(summary.candidateAction));
+    window.setTextSafe?.("blockingStage", text(summary.finalBlockStage));
+    window.setTextSafe?.("blockingReasonJa", text(summary.reasonJa || summary.finalReason));
+    window.setTextSafe?.("blockingScore", text(summary.entryEvidenceScore));
+    window.setTextSafe?.("blockingCategory", text(summary.finalCategory));
+    window.setTextSafe?.("blockingSuggestedFix", text(summary.suggestedFix));
   };
 })();

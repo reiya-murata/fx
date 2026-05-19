@@ -595,6 +595,75 @@ button {
   margin-bottom: 0;
 }
 
+.blocking-summary-card {
+  border: 1px solid #7c2d12;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #24160b, #121a28);
+  padding: 14px;
+  margin: 0 0 12px;
+}
+
+.blocking-summary-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.blocking-summary-head span {
+  color: #f6c989;
+  font-weight: 700;
+}
+
+.blocking-summary-head strong {
+  color: #ffce8a;
+  overflow-wrap: anywhere;
+}
+
+.blocking-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.blocking-summary-grid > div {
+  min-width: 0;
+  border: 1px solid #33465e;
+  border-radius: 8px;
+  background: #0a1320;
+  padding: 9px;
+}
+
+.blocking-summary-grid .wide {
+  grid-column: 1 / -1;
+}
+
+.blocking-summary-grid span {
+  display: block;
+  margin-bottom: 4px;
+  color: #8fa1ba;
+  font-size: 11px;
+}
+
+.blocking-summary-grid strong {
+  display: -webkit-box;
+  color: #e6eefb;
+  line-height: 1.45;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.blocking-summary-grid .reason strong {
+  color: #ffd39a;
+}
+
+.blocking-summary-grid .fix strong {
+  color: #a7f3d0;
+}
+
 #autoExecutionMode {
   width: 100%;
   min-width: 0;
@@ -753,6 +822,14 @@ button {
   margin-bottom: 9px;
 }
 
+.auto-status-block summary,
+.signal-details summary {
+  cursor: pointer;
+  color: #dce8f9;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
 .auto-section h4 {
   margin: 0 0 8px;
   color: #dce8f9;
@@ -766,6 +843,20 @@ button {
   padding: 10px;
   line-height: 1.55;
   overflow-wrap: anywhere;
+}
+
+.signal-short-reason,
+.signal-details p {
+  overflow-wrap: anywhere;
+  line-height: 1.55;
+}
+
+.signal-short-reason {
+  display: -webkit-box;
+  margin: 8px 0;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .warning-banner {
@@ -918,13 +1009,15 @@ button {
   }
   .asset-form-grid,
   .risk-preview,
-  .auto-overview {
+  .auto-overview,
+  .blocking-summary-grid {
     grid-template-columns: 1fr;
   }
   .risk-preview .risk-main {
     grid-column: auto;
   }
-  .auto-overview .full-width {
+  .auto-overview .full-width,
+  .blocking-summary-grid .wide {
     grid-column: auto;
   }
 }

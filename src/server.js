@@ -384,8 +384,13 @@ function appendAudit(state, event, details) {
   };
 }
 
-function handleTicker(res) {
-  const ticker = market.step();
+async function refreshMarketTickForStatus() {
+  await market.refreshHttpTickNow?.();
+}
+
+async function handleTicker(res) {
+  await refreshMarketTickForStatus();
+  const ticker = market.getTicker?.() || market.step();
   send(res, 200, {
     ...ticker,
     marketStatus: market.getMarketStatus()
@@ -670,7 +675,8 @@ function handleCandles(res, url) {
   });
 }
 
-function handleMarketStatus(res) {
+async function handleMarketStatus(res) {
+  await refreshMarketTickForStatus();
   send(res, 200, market.getMarketStatus());
 }
 
@@ -3609,7 +3615,8 @@ async function handleSettingsUpdate(req, res) {
   });
 }
 
-function handleAutoStatus(res) {
+async function handleAutoStatus(res) {
+  await refreshMarketTickForStatus();
   const state = loadState();
   const marketStatus = market.getMarketStatus();
   const statusTick = market.step();

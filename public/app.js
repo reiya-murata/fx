@@ -548,7 +548,9 @@ function renderSignal(s) {
   setText("signalUpdatedAt", s.ts ? formatJstDateTime(new Date(s.ts)) : "-");
   setText("signalMarketTs", s.marketTimestamp ? formatJstDateTime(new Date(s.marketTimestamp)) : "-");
   setText("signalInputHash", s.decisionInputHash ? String(s.decisionInputHash).slice(0, 12) : "-");
-  setText("rationale", rationaleJa(s.rationale || "-"));
+  const signalReason = rationaleJa(s.rationale || "-");
+  setText("signalShortReason", signalReason);
+  setText("rationale", signalReason);
   renderHoldReasonTags(s);
   setText("entry", fmt(s.entryPrice, 3));
   setText("sl", fmt(s.stopLossPrice, 3));
