@@ -14,7 +14,7 @@ function hasMostlyEnglish(text) {
   return asciiLetters >= 12 && asciiLetters > japanese;
 }
 
-function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTradeGuardAllowed, positionSizingBlockedReason }) {
+function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTradeGuardAllowed, positionSizingBlockedReason, contextValidation }) {
   const reason = String(finalReason || "");
   if (reason.includes("LIVE_DISCONNECTED") || reason.includes("リアルタイム未接続")) {
     return "リアルタイム価格ソース、marketStatus.realtime、tickerのbid/askを確認してください";
@@ -26,6 +26,14 @@ function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTrade
     return "preTradeGuard の confidence / spread / executionStress を確認してください";
   }
   if (finalBlockStage === "context_validation") {
+    const contextSampleCount = Number(contextValidation?.contextSampleCount ?? contextValidation?.exactCount ?? 0);
+    const requiredSamples = Number(contextValidation?.requiredSamples ?? 0);
+    if (!contextValidation?.contextKey) {
+      return "contextKey が取得できていません。contextValidation の診断出力を確認してください";
+    }
+    if (requiredSamples > 0 && contextSampleCount < requiredSamples) {
+      return "この相場コンテキストの検証サンプルが不足しています。PAPER_LIVEで記録を継続し、サンプルが増えるまで実行を抑制してください";
+    }
     return "未検証コンテキストの扱いを確認してください";
   }
   if (finalBlockStage === "position_sizing" || positionSizingBlockedReason) {
@@ -73,7 +81,14 @@ export function buildBlockingSummary(input = {}) {
     entryEvidenceScore: Number(input.entryEvidenceScore ?? entryEvidenceBreakdown.totalScore ?? 0),
     finalCategory,
     preTradeGuardAllowed,
-    contextValidationMode: contextValidation.mode || contextValidation.status || "UNKNOWN",
+    contextKey: contextValidation.contextKey || "",
+    contextSampleCount: contextValidation.contextSampleCount ?? contextValidation.exactCount ?? null,
+    requiredSamples: contextValidation.requiredSamples ?? null,
+    contextValidationReason: contextValidation.validationReason || contextValidation.originalReason || contextValidation.reason || "",
+    contextValidationAllowed: typeof contextValidation.allowed === "boolean" ? contextValidation.allowed : null,
+    contextValidationMode: contextValidation.validationMode || contextValidation.appliedMode || contextValidation.mode || contextValidation.status || "UNKNOWN",
+    knownContext: typeof contextValidation.knownContext === "boolean" ? contextValidation.knownContext : null,
+    bootstrapUsed: typeof contextValidation.bootstrapUsed === "boolean" ? contextValidation.bootstrapUsed : null,
     positionSizingBlockedReason,
     shouldInvestigate,
     suggestedFix: suggestedFixFor({
@@ -81,7 +96,8 @@ export function buildBlockingSummary(input = {}) {
       finalBlockStage,
       finalReason,
       preTradeGuardAllowed,
-      positionSizingBlockedReason
+      positionSizingBlockedReason,
+      contextValidation
     })
   };
 }

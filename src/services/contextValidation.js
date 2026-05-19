@@ -58,9 +58,12 @@ export function evaluateContextValidation({
     return {
       enabled: false,
       allowed: true,
+      pass: true,
       mode: "LIVE",
+      validationMode: "LIVE",
       sizeMultiplier: 1,
-      reason: "context validation disabled"
+      reason: "context validation disabled",
+      validationReason: "context validation disabled"
     };
   }
   const key = String(contextKey || "");
@@ -68,9 +71,17 @@ export function evaluateContextValidation({
     return {
       enabled: true,
       allowed: false,
+      pass: false,
       mode: "VALIDATION_ONLY",
+      validationMode: "VALIDATION_ONLY",
       sizeMultiplier: 0,
-      reason: "context key missing"
+      contextKey: "",
+      contextSampleCount: 0,
+      requiredSamples: Math.max(1, toNum(cfg.minTradesPerContext, 20)),
+      reason: "context key missing",
+      validationReason: "context key missing",
+      knownContext: false,
+      bootstrapUsed: false
     };
   }
 
@@ -86,14 +97,21 @@ export function evaluateContextValidation({
     return {
       enabled: true,
       allowed: true,
+      pass: true,
       validated: true,
       mode: "LIVE",
+      validationMode: "LIVE",
       sizeMultiplier: 1,
       exactCount,
       coarseCount,
+      contextSampleCount: exactCount,
+      requiredSamples: minExact,
       contextKey: key,
       coarseKey: cKey,
-      reason: "context validated"
+      reason: "context validated",
+      validationReason: "context validated",
+      knownContext: true,
+      bootstrapUsed: false
     };
   }
 
@@ -103,29 +121,43 @@ export function evaluateContextValidation({
     return {
       enabled: true,
       allowed: true,
+      pass: true,
       validated: false,
       mode: "LIVE_LIMITED",
+      validationMode: "LIVE_LIMITED",
       sizeMultiplier: dynamicBootstrapMultiplier,
       selectedRiskPercent: toNum(selectedRiskPercent, 1),
       exactCount,
       coarseCount,
+      contextSampleCount: exactCount,
+      requiredSamples: minExact,
       contextKey: key,
       coarseKey: cKey,
-      reason: bootstrapAllowed.reason
+      reason: bootstrapAllowed.reason,
+      validationReason: bootstrapAllowed.reason,
+      knownContext: exactCount > 0 || coarseCount > 0,
+      bootstrapUsed: true
     };
   }
 
   return {
     enabled: true,
     allowed: false,
+    pass: false,
     validated: false,
     mode: "VALIDATION_ONLY",
+    validationMode: "VALIDATION_ONLY",
     sizeMultiplier: 0,
     exactCount,
     coarseCount,
+    contextSampleCount: exactCount,
+    requiredSamples: minExact,
     contextKey: key,
     coarseKey: cKey,
-    reason: "unvalidated context"
+    reason: "unvalidated context",
+    validationReason: "unvalidated context",
+    knownContext: exactCount > 0 || coarseCount > 0,
+    bootstrapUsed: false
   };
 }
 
