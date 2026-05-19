@@ -2433,6 +2433,17 @@ function runAutoTraderTick() {
     ticker,
     pipSize: RUNTIME_CONFIG.pipSize
   });
+  const quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
+    side: signal.action === "BUY" ? "LONG" : "SHORT",
+    entryLocationDiagnostics,
+    multiTimeframeDiagnostics,
+    preTradeGuard,
+    entryEvidenceScore,
+    decisionCategory: entryEvidenceDiagnostics.finalCategory,
+    ticker,
+    executionProfile
+  });
+  const quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics);
   const openedAt = new Date().toISOString();
   const position = {
     id: randomUUID(),
@@ -2461,6 +2472,10 @@ function runAutoTraderTick() {
     entryEvidenceScore,
     entryEvidenceBreakdown: entryEvidenceDiagnostics.entryEvidenceBreakdown,
     decisionCategory: entryEvidenceDiagnostics.finalCategory,
+    quickAdverseRiskDiagnostics,
+    quickAdverseRiskScore: quickAdverseRiskDiagnostics.quickAdverseRiskScore,
+    quickAdverseRiskLevel: quickAdverseRiskDiagnostics.riskLevel,
+    quickAdverseProneDiagnostics,
     entryLocationScore,
     entryLocationDiagnostics,
     multiTimeframeScore: multiTimeframeDiagnostics.multiTimeframeScore,
@@ -3109,9 +3124,13 @@ function closeAutoPositions(state, marketTick, { forceCloseAll, stopRequested = 
             signalConfidence: Number(position.signalConfidence || 0),
             signalMetrics: position.signalMetrics || null,
             entryEvidenceScore: Number(position.entryEvidenceScore || 0),
-            entryEvidenceBreakdown: position.entryEvidenceBreakdown || null,
-            decisionCategory: position.decisionCategory || null,
-            entryLocationScore: Number(position.entryLocationScore || 0),
+      entryEvidenceBreakdown: position.entryEvidenceBreakdown || null,
+      decisionCategory: position.decisionCategory || null,
+      quickAdverseRiskDiagnostics: position.quickAdverseRiskDiagnostics || null,
+      quickAdverseRiskScore: position.quickAdverseRiskScore ?? null,
+      quickAdverseRiskLevel: position.quickAdverseRiskLevel || position.quickAdverseRiskDiagnostics?.riskLevel || null,
+      quickAdverseProneDiagnostics: position.quickAdverseProneDiagnostics || null,
+      entryLocationScore: Number(position.entryLocationScore || 0),
             entryLocationDiagnostics: position.entryLocationDiagnostics || null,
             multiTimeframeScore: Number(position.multiTimeframeScore || 0),
             shortTermAlignmentScore: Number(position.shortTermAlignmentScore || 0),
@@ -3337,6 +3356,10 @@ function closeAutoPositions(state, marketTick, { forceCloseAll, stopRequested = 
       entryEvidenceScore: Number(position.entryEvidenceScore || 0),
       entryEvidenceBreakdown: position.entryEvidenceBreakdown || null,
       decisionCategory: position.decisionCategory || null,
+      quickAdverseRiskDiagnostics: position.quickAdverseRiskDiagnostics || null,
+      quickAdverseRiskScore: position.quickAdverseRiskScore ?? null,
+      quickAdverseRiskLevel: position.quickAdverseRiskLevel || position.quickAdverseRiskDiagnostics?.riskLevel || null,
+      quickAdverseProneDiagnostics: position.quickAdverseProneDiagnostics || null,
       entryLocationScore: Number(position.entryLocationScore || 0),
       entryLocationDiagnostics: position.entryLocationDiagnostics || null,
       multiTimeframeScore: Number(position.multiTimeframeScore || 0),
@@ -3752,6 +3775,7 @@ async function handleAutoStatus(res) {
       preTradeGuard: autoRuntime.lastPreTradeGuard,
       contextValidationGate: autoRuntime.lastContextValidation,
       contextValidation: autoRuntime.lastContextValidation,
+      marketStatus,
       positionSizingDiagnostics,
       finalSizingGuard: autoRuntime.lastFinalSizingGuard
     }),
@@ -4935,6 +4959,90 @@ function buildEntryLocationDiagnostics({ signal = {}, sets = {}, ticker = {}, mt
     bbZ5m: mtf.bbZ5m,
     bbZ10m: mtf.bbZ10m,
     reason: entryLocationCategory
+  };
+}
+
+function buildQuickAdverseRiskDiagnostics({
+  side = "",
+  entryLocationDiagnostics = {},
+  multiTimeframeDiagnostics = {},
+  preTradeGuard = {},
+  entryEvidenceScore = 0,
+  decisionCategory = "",
+  ticker = {},
+  executionProfile = {}
+} = {}) {
+  const entry = entryLocationDiagnostics || {};
+  const mtf = multiTimeframeDiagnostics || {};
+  const tradeSide = String(side || "").toUpperCase();
+  const direction = tradeSide === "SHORT" ? -1 : 1;
+  const recentRunupPips = safeNum(entry.recentRunupPips, 0);
+  const momentum5mPips = safeNum(mtf.momentum5mPips, 0);
+  const momentum10mPips = safeNum(mtf.momentum10mPips, 0);
+  const adverseMomentum = Math.max(0, -(momentum5mPips * direction)) + Math.max(0, -(momentum10mPips * direction)) * 0.7;
+  const adverseRunup = Math.max(0, recentRunupPips * direction);
+  const rsi1m = safeNum(entry.rsi1m, 50);
+  const bbZ1m = safeNum(entry.bbZ1m, 0);
+  const exhaustion = tradeSide === "SHORT"
+    ? clamp((50 - rsi1m) / 25, 0, 1) + clamp((-bbZ1m - 0.4) / 1.2, 0, 1)
+    : clamp((rsi1m - 50) / 25, 0, 1) + clamp((bbZ1m - 0.4) / 1.2, 0, 1);
+  const spreadPips = safeNum(preTradeGuard.spreadPips, safeNum(ticker.spreadPips, 0));
+  const executionStress = safeNum(preTradeGuard.executionStress, safeNum(executionProfile.stress, 0));
+  const categoryPenalty = ["lateTrendEntry", "overextendedEntry", "noPullbackEntry"].includes(String(entry.entryLocationCategory || "")) ? 0.18 : 0;
+  const score = clamp(
+    adverseMomentum / 3
+      + adverseRunup / 3
+      + exhaustion * 0.18
+      + clamp((spreadPips - 0.2) / 0.6, 0, 1) * 0.12
+      + clamp(executionStress / 2.4, 0, 1) * 0.12
+      + categoryPenalty,
+    0,
+    1
+  );
+  const riskLevel = score >= 0.8 ? "EXTREME" : (score >= 0.6 ? "HIGH" : (score >= 0.35 ? "MID" : "LOW"));
+  return {
+    quickAdverseRiskScore: Number(score.toFixed(4)),
+    riskLevel,
+    recentRunupPips,
+    distanceFromRecentHighPips: safeNum(entry.distanceFromRecentHighPips, 0),
+    distanceFromRecentLowPips: safeNum(entry.distanceFromRecentLowPips, 0),
+    rsi1m,
+    bbZ1m,
+    momentum5mPips,
+    momentum10mPips,
+    spreadPips,
+    executionStress,
+    entryLocationCategory: entry.entryLocationCategory || "UNKNOWN",
+    decisionCategory: decisionCategory || "UNKNOWN",
+    entryEvidenceScore: safeNum(entryEvidenceScore, 0),
+    side: tradeSide || "UNKNOWN",
+    session: executionProfile.session || "UNKNOWN"
+  };
+}
+
+function buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics = {}) {
+  const entryLocationCategory = String(quickAdverseRiskDiagnostics.entryLocationCategory || "UNKNOWN");
+  const decisionCategory = String(quickAdverseRiskDiagnostics.decisionCategory || "UNKNOWN");
+  const session = String(quickAdverseRiskDiagnostics.session || "UNKNOWN").toUpperCase();
+  const prone = entryLocationCategory === "validPullbackEntry"
+    && ["PROBE_CANDIDATE", "STRONG_BASE"].includes(decisionCategory)
+    && ["LONDON", "NY"].includes(session);
+  return {
+    enabled: true,
+    prone,
+    reason: prone ? "validPullbackEntry with strong/probe decision during LONDON/NY" : "quick adverse prone condition not matched",
+    riskLevel: quickAdverseRiskDiagnostics.riskLevel || "UNKNOWN",
+    entryLocationCategory,
+    decisionCategory,
+    session,
+    entryEvidenceScore: safeNum(quickAdverseRiskDiagnostics.entryEvidenceScore, 0),
+    recentRunupPips: safeNum(quickAdverseRiskDiagnostics.recentRunupPips, 0),
+    distanceFromRecentHighPips: safeNum(quickAdverseRiskDiagnostics.distanceFromRecentHighPips, 0),
+    distanceFromRecentLowPips: safeNum(quickAdverseRiskDiagnostics.distanceFromRecentLowPips, 0),
+    rsi1m: safeNum(quickAdverseRiskDiagnostics.rsi1m, 50),
+    bbZ1m: safeNum(quickAdverseRiskDiagnostics.bbZ1m, 0),
+    momentum5mPips: safeNum(quickAdverseRiskDiagnostics.momentum5mPips, 0),
+    momentum10mPips: safeNum(quickAdverseRiskDiagnostics.momentum10mPips, 0)
   };
 }
 

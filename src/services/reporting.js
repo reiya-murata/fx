@@ -243,13 +243,117 @@ function entryLocationScoreOf(trade = {}) {
 }
 
 function quickAdverseRiskScoreOf(trade = {}) {
+  const derived = quickAdverseRiskDiagnosticsOf(trade);
   return firstFinite(
     trade.quickAdverseRiskScore,
     trade.quickAdverseRiskDiagnostics?.quickAdverseRiskScore,
     trade.entryLocationDiagnostics?.quickAdverseRiskScore,
     trade.trendUpEntryQuality?.quickAdverseRiskScore,
-    trade.exitTrace?.quickAdverseRiskScore
+    trade.exitTrace?.quickAdverseRiskScore,
+    derived.quickAdverseRiskScore
   );
+}
+
+function quickAdverseRiskDiagnosticsOf(trade = {}) {
+  if (trade.quickAdverseRiskDiagnostics?.riskLevel && firstFinite(trade.quickAdverseRiskDiagnostics.quickAdverseRiskScore) !== null) {
+    return trade.quickAdverseRiskDiagnostics;
+  }
+  const entry = trade.entryLocationDiagnostics || trade.trendUpEntryQuality || {};
+  const side = String(trade.side || "").toUpperCase();
+  const direction = side === "SHORT" ? -1 : 1;
+  const recentRunupPips = firstFinite(entry.recentRunupPips) ?? 0;
+  const momentum5mPips = firstFinite(trade.momentum5mPips, trade.multiTimeframeDiagnostics?.momentum5mPips) ?? 0;
+  const momentum10mPips = firstFinite(trade.momentum10mPips, trade.multiTimeframeDiagnostics?.momentum10mPips) ?? 0;
+  const adverseMomentum = Math.max(0, -(momentum5mPips * direction)) + Math.max(0, -(momentum10mPips * direction)) * 0.7;
+  const adverseRunup = Math.max(0, recentRunupPips * direction);
+  const rsi1m = firstFinite(entry.rsi1m) ?? 50;
+  const bbZ1m = firstFinite(entry.bbZ1m) ?? 0;
+  const exhaustion = side === "SHORT"
+    ? clamp((50 - rsi1m) / 25, 0, 1) + clamp((-bbZ1m - 0.4) / 1.2, 0, 1)
+    : clamp((rsi1m - 50) / 25, 0, 1) + clamp((bbZ1m - 0.4) / 1.2, 0, 1);
+  const spreadPips = firstFinite(trade.spreadPips, trade.preTradeGuard?.spreadPips, trade.signalMetrics?.spreadPips) ?? 0;
+  const executionStress = firstFinite(trade.executionStress, trade.preTradeGuard?.executionStress) ?? 0;
+  const entryLocationCategory = entry.entryLocationCategory || "UNKNOWN";
+  const categoryPenalty = ["lateTrendEntry", "overextendedEntry", "noPullbackEntry"].includes(String(entryLocationCategory)) ? 0.18 : 0;
+  const score = clamp(
+    adverseMomentum / 3
+      + adverseRunup / 3
+      + exhaustion * 0.18
+      + clamp((spreadPips - 0.2) / 0.6, 0, 1) * 0.12
+      + clamp(executionStress / 2.4, 0, 1) * 0.12
+      + categoryPenalty,
+    0,
+    1
+  );
+  const riskLevel = score >= 0.8 ? "EXTREME" : (score >= 0.6 ? "HIGH" : (score >= 0.35 ? "MID" : "LOW"));
+  return {
+    quickAdverseRiskScore: Number(score.toFixed(4)),
+    riskLevel,
+    recentRunupPips,
+    distanceFromRecentHighPips: firstFinite(entry.distanceFromRecentHighPips) ?? null,
+    distanceFromRecentLowPips: firstFinite(entry.distanceFromRecentLowPips) ?? null,
+    rsi1m,
+    bbZ1m,
+    momentum5mPips,
+    momentum10mPips,
+    spreadPips,
+    executionStress,
+    entryLocationCategory,
+    decisionCategory: trade.decisionCategory || trade.entryEvidenceBreakdown?.finalCategory || "UNKNOWN",
+    entryEvidenceScore: firstFinite(trade.entryEvidenceScore, trade.entryEvidenceBreakdown?.totalScore),
+    side: side || "UNKNOWN",
+    session: trade.executionSession || "UNKNOWN"
+  };
+}
+
+function quickAdverseRiskLevelOf(trade = {}) {
+  return categoryForLogic(trade, trade.quickAdverseRiskLevel || trade.quickAdverseRiskDiagnostics?.riskLevel || quickAdverseRiskDiagnosticsOf(trade).riskLevel);
+}
+
+function quickAdverseProneDiagnosticsOf(trade = {}) {
+  if (trade.quickAdverseProneDiagnostics?.enabled === true) return trade.quickAdverseProneDiagnostics;
+  const d = quickAdverseRiskDiagnosticsOf(trade);
+  const entryLocationCategory = d.entryLocationCategory || "UNKNOWN";
+  const decisionCategory = d.decisionCategory || "UNKNOWN";
+  const session = String(d.session || "UNKNOWN").toUpperCase();
+  const prone = entryLocationCategory === "validPullbackEntry"
+    && ["PROBE_CANDIDATE", "STRONG_BASE"].includes(String(decisionCategory))
+    && ["LONDON", "NY"].includes(session);
+  return {
+    enabled: true,
+    prone,
+    reason: prone ? "validPullbackEntry with strong/probe decision during LONDON/NY" : "quick adverse prone condition not matched",
+    riskLevel: d.riskLevel || "UNKNOWN",
+    entryLocationCategory,
+    decisionCategory,
+    session,
+    entryEvidenceScore: d.entryEvidenceScore,
+    recentRunupPips: d.recentRunupPips,
+    distanceFromRecentHighPips: d.distanceFromRecentHighPips,
+    distanceFromRecentLowPips: d.distanceFromRecentLowPips,
+    rsi1m: d.rsi1m,
+    bbZ1m: d.bbZ1m,
+    momentum5mPips: d.momentum5mPips,
+    momentum10mPips: d.momentum10mPips
+  };
+}
+
+function quickAdverseProneBandOf(trade = {}) {
+  return quickAdverseProneDiagnosticsOf(trade).prone ? "prone" : "notProne";
+}
+
+function quickAdverseProneReasonOf(trade = {}) {
+  return quickAdverseProneDiagnosticsOf(trade).reason || "UNKNOWN";
+}
+
+function quickAdverseTopPatterns(trades, initialBalance = 1_000_000) {
+  return Object.entries(summarizeByFn(trades, (t) => {
+    const d = quickAdverseRiskDiagnosticsOf(t);
+    return `${d.riskLevel}|${d.entryLocationCategory}|${d.decisionCategory}|${d.session}`;
+  }, initialBalance))
+    .map(([pattern, summary]) => ({ pattern, ...summary }))
+    .sort((a, b) => Number(a.netProfitJpy || 0) - Number(b.netProfitJpy || 0))
+    .slice(0, 12);
 }
 
 function pullbackQualityOf(trade = {}) {
@@ -311,6 +415,7 @@ function summarizeLogicSplit(trades, initialBalance = 1_000_000) {
   const list = Array.isArray(trades) ? trades : [];
   const newLogicTrades = list.filter(hasNewLogicLooseMarkers);
   const newLogicStrictTrades = list.filter(hasNewLogicStrictMarkers);
+  const quickAdverseNewLogicTrades = newLogicTrades.filter(isQuickAdverseExit);
   const legacyTrades = list.filter((t) => !hasNewLogicMarkers(t));
   const newLogicSlippage = slippageAdjustedSummary(newLogicTrades, initialBalance);
   const newLogicStrictSlippage = slippageAdjustedSummary(newLogicStrictTrades, initialBalance);
@@ -415,13 +520,21 @@ function summarizeLogicSplit(trades, initialBalance = 1_000_000) {
         && wl.losses === compactSummary(newLogicTrades, initialBalance).losses,
       byExitReason: summarizeByFn(newLogicTrades, (t) => t.exitReason || "UNKNOWN", initialBalance),
       byEntryLocationCategory: summarizeByFn(newLogicTrades, entryLocationCategoryOf, initialBalance),
-      byQuickAdverseRiskScore: summarizeByFn(newLogicTrades, (t) => scoreBandForLogic(t, quickAdverseRiskScoreOf(t)), initialBalance),
+      byQuickAdverseRiskScore: summarizeByFn(quickAdverseNewLogicTrades, quickAdverseRiskLevelOf, initialBalance),
+      byQuickAdverseEntryLocationCategory: summarizeByFn(quickAdverseNewLogicTrades, entryLocationCategoryOf, initialBalance),
+      byQuickAdverseDecisionCategory: summarizeByFn(quickAdverseNewLogicTrades, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", initialBalance),
+      byQuickAdverseSession: summarizeByFn(quickAdverseNewLogicTrades, (t) => quickAdverseRiskDiagnosticsOf(t).session || "UNKNOWN", initialBalance),
+      quickAdverseTopPatterns: quickAdverseTopPatterns(quickAdverseNewLogicTrades, initialBalance),
+      byQuickAdverseProne: summarizeByFn(newLogicTrades, quickAdverseProneBandOf, initialBalance),
+      byQuickAdverseProneReason: summarizeByFn(newLogicTrades, quickAdverseProneReasonOf, initialBalance),
+      byEntryLocationCategoryAndProne: summarizeCrossByFn(newLogicTrades, entryLocationCategoryOf, quickAdverseProneBandOf, initialBalance),
+      byDecisionCategoryAndProne: summarizeCrossByFn(newLogicTrades, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", quickAdverseProneBandOf, initialBalance),
       byDecisionCategory: summarizeByFn(newLogicTrades, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", initialBalance),
       quickAdverseCount: newLogicTrades.filter(isQuickAdverseExit).length,
       autoSlCount: newLogicTrades.filter(isAutoSlExit).length,
       strictByExitReason: summarizeByFn(newLogicStrictTrades, (t) => t.exitReason || "UNKNOWN", initialBalance),
       strictByEntryLocationCategory: summarizeByFn(newLogicStrictTrades, entryLocationCategoryOf, initialBalance),
-      strictByQuickAdverseRiskScore: summarizeByFn(newLogicStrictTrades, (t) => scoreBandForLogic(t, quickAdverseRiskScoreOf(t)), initialBalance),
+      strictByQuickAdverseRiskScore: summarizeByFn(newLogicStrictTrades.filter(isQuickAdverseExit), quickAdverseRiskLevelOf, initialBalance),
       strictQuickAdverseCount: newLogicStrictTrades.filter(isQuickAdverseExit).length,
       strictAutoSlCount: newLogicStrictTrades.filter(isAutoSlExit).length
     },
@@ -1424,7 +1537,15 @@ export function buildMonthlyPerformanceReport(state, now = new Date()) {
     byEntryLocationCategory: groupedCount(allAuto, entryLocationCategoryOf),
     byEntryLocationCategoryAndExitReason: summarizeCrossByFn(allAuto, entryLocationCategoryOf, (t) => t.exitReason || "UNKNOWN", init),
     byEntryLocationScoreAndExitReason: summarizeCrossByFn(allAuto, (t) => scoreBandForLogic(t, entryLocationScoreOf(t)), (t) => t.exitReason || "UNKNOWN", init),
-    byQuickAdverseRiskScore: summarizeByFn(allAuto, (t) => scoreBandForLogic(t, quickAdverseRiskScoreOf(t)), init),
+    byQuickAdverseRiskScore: summarizeByFn(allAuto.filter(isQuickAdverseExit), quickAdverseRiskLevelOf, init),
+    byQuickAdverseEntryLocationCategory: summarizeByFn(allAuto.filter(isQuickAdverseExit), entryLocationCategoryOf, init),
+    byQuickAdverseDecisionCategory: summarizeByFn(allAuto.filter(isQuickAdverseExit), (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", init),
+    byQuickAdverseSession: summarizeByFn(allAuto.filter(isQuickAdverseExit), (t) => quickAdverseRiskDiagnosticsOf(t).session || "UNKNOWN", init),
+    quickAdverseTopPatterns: quickAdverseTopPatterns(allAuto.filter(isQuickAdverseExit), init),
+    byQuickAdverseProne: summarizeByFn(allAuto, quickAdverseProneBandOf, init),
+    byQuickAdverseProneReason: summarizeByFn(allAuto, quickAdverseProneReasonOf, init),
+    byEntryLocationCategoryAndProne: summarizeCrossByFn(allAuto, entryLocationCategoryOf, quickAdverseProneBandOf, init),
+    byDecisionCategoryAndProne: summarizeCrossByFn(allAuto, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", quickAdverseProneBandOf, init),
     byQuickAdverseRiskScoreAndExitReason: summarizeCrossByFn(allAuto, (t) => scoreBandForLogic(t, quickAdverseRiskScoreOf(t)), (t) => t.exitReason || "UNKNOWN", init),
     byPullbackQuality: summarizeByFn(allAuto, pullbackQualityOf, init),
     byPullbackQualityAndExitReason: summarizeCrossByFn(allAuto, pullbackQualityOf, (t) => t.exitReason || "UNKNOWN", init),
