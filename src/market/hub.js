@@ -146,6 +146,10 @@ export class MarketHub {
       orderBookImbalance: 0,
       ts: new Date().toISOString()
     };
+    this.lastValidTick = null;
+    this.lastValidTickMs = 0;
+    this.lastInvalidTickAt = null;
+    this.invalidTickReason = "valid tick unavailable";
     this.lastTickMs = Date.now();
     this.historyReady = false;
     this.historyCandles = {
@@ -209,10 +213,12 @@ export class MarketHub {
   }
 
   consumeTick(tick) {
-    const bid = Number(tick.bid);
-    const ask = Number(tick.ask);
+    const bid = Number(tick?.bid);
+    const ask = Number(tick?.ask);
     // Validate tick: bid and ask must be positive and ask > bid
     if (!(bid > 0) || !(ask > 0) || !(ask > bid)) {
+      this.lastInvalidTickAt = new Date().toISOString();
+      this.invalidTickReason = "Tick data invalid or missing (bid/ask values)";
       return;
     }
     this.lastTick = {
@@ -224,6 +230,9 @@ export class MarketHub {
       ts: tick.ts || new Date().toISOString()
     };
     this.lastTickMs = Date.now();
+    this.lastValidTick = { ...this.lastTick };
+    this.lastValidTickMs = this.lastTickMs;
+    this.invalidTickReason = null;
 
     const mid = (this.lastTick.bid + this.lastTick.ask) / 2;
     const tickMsRaw = new Date(this.lastTick.ts).getTime();
@@ -250,16 +259,64 @@ export class MarketHub {
     this.current1m.ts = new Date(this.current1mBucketMs).toISOString();
   }
 
-  getTicker() {
+  getTicker(now = new Date()) {
+    const nowMs = now instanceof Date ? now.getTime() : Date.now();
+    const tick = this.isValidTick(this.lastTick) ? this.lastTick : this.lastValidTick;
+    const tickMsRaw = new Date(tick?.ts || 0).getTime();
+    const tickMs = Number.isFinite(tickMsRaw) && tickMsRaw > 0 ? tickMsRaw : Number(this.lastValidTickMs || 0);
+    if (this.isValidTick(tick) && Math.max(0, nowMs - tickMs) <= MARKET_HTTP_TICK_STALE_MS) return tick;
+    return {
+      symbol: "USDJPY",
+      bid: null,
+      ask: null,
+      spreadPips: null,
+      tickerUnavailable: true,
+      reason: this.invalidTickReason || "valid tick unavailable"
+    };
+  }
+
+  isValidTick(tick) {
+    const bid = Number(tick?.bid);
+    const ask = Number(tick?.ask);
+    return bid > 0 && ask > 0 && ask > bid;
+  }
+
+  async refreshHttpTickNow() {
+    this.updateFallbackState();
+    if (!this.fallbackActive || !HAS_HTTP_TICK_PROVIDER || this.isHttpRefreshing) return this.lastTick;
+    this.isHttpRefreshing = true;
+    try {
+      const bridgeTick = (MARKET_HTTP_TICKER_URL || MARKET_HTTP_TICKER_URLS.length)
+        ? await this.fetchBridgeTick(MARKET_HTTP_TICKER_URL || MARKET_HTTP_TICKER_URLS)
+        : null;
+      const tick = bridgeTick || (MARKET_HTTP_PROVIDER === "GMO_FX" ? await this.fetchGmoFxTick() : null);
+      if (this.isValidTick(tick)) {
+        this.fallbackSource = MARKET_HTTP_PROVIDER === "SBI_FX" ? "LIVE_HTTP_SBI" : (MARKET_HTTP_PROVIDER === "GMO_FX" ? "LIVE_HTTP_GMO" : "LIVE_HTTP_BRIDGE");
+        this.consumeTick(tick);
+        this.lastBridgeError = null;
+      } else {
+        this.lastInvalidTickAt = new Date().toISOString();
+        this.invalidTickReason = this.lastBridgeError || "valid tick unavailable";
+      }
+    } finally {
+      this.isHttpRefreshing = false;
+    }
     return this.lastTick;
   }
 
   getMarketStatus(now = new Date()) {
     const nowMs = now instanceof Date ? now.getTime() : Date.now();
-    const staleMs = Math.max(0, nowMs - Number(this.lastTickMs || 0));
+    const lastTickAtMsRaw = new Date(this.lastTick?.ts || 0).getTime();
+    const lastTickAtMs = Number.isFinite(lastTickAtMsRaw) && lastTickAtMsRaw > 0
+      ? lastTickAtMsRaw
+      : Number(this.lastTickMs || 0);
+    const staleMs = Math.max(0, nowMs - lastTickAtMs);
     const fxOpen = PAPER_LIVE_MODE ? true : isFxMarketOpen(nowMs);
     const wsOpen = this.feedState.state === "open";
-    const staleLimitMs = this.fallbackSource === "LIVE_HTTP_GMO" || this.fallbackSource === "LIVE_HTTP_SBI" || this.fallbackSource === "LIVE_HTTP_BRIDGE"
+    const hasValidTickData = this.isValidTick(this.lastTick);
+    const hasHttpTick = this.fallbackActive && HAS_HTTP_TICK_PROVIDER && hasValidTickData;
+    const httpSource = MARKET_HTTP_PROVIDER === "SBI_FX" ? "LIVE_HTTP_SBI" : (MARKET_HTTP_PROVIDER === "GMO_FX" ? "LIVE_HTTP_GMO" : "LIVE_HTTP_BRIDGE");
+    const staleLimitMs = hasHttpTick || this.fallbackSource === "LIVE_HTTP_GMO" || this.fallbackSource === "LIVE_HTTP_SBI" || this.fallbackSource === "LIVE_HTTP_BRIDGE"
       ? MARKET_HTTP_TICK_STALE_MS
       : 3000;
     const stale = staleMs > staleLimitMs;
@@ -271,12 +328,14 @@ export class MarketHub {
       && MARKET_ALLOW_HISTORY_POLL_TRADING
       && Number.isFinite(httpAnchorAgeMs)
       && httpAnchorAgeMs <= MARKET_HISTORY_POLL_REALTIME_GRACE_MS;
-    const hasValidTickData = this.lastTick && this.lastTick.bid > 0 && this.lastTick.ask > 0 && this.lastTick.ask > this.lastTick.bid;
+    const httpTickRealtime = hasHttpTick && !stale && !httpPollHistoryOnly;
     const fallbackRealtime = this.fallbackActive && !stale && !httpPollHistoryOnly && hasValidTickData;
     const realtime = (wsOpen && !stale && hasValidTickData) || fallbackRealtime || httpPollCandleCloseRealtime;
     let source = "LIVE_DISCONNECTED";
     if (wsOpen) {
       source = stale ? "LIVE_STALE" : "LIVE_WS";
+    } else if (httpTickRealtime) {
+      source = httpSource;
     } else if (fallbackRealtime) {
       source = this.fallbackSource;
     } else if (httpPollCandleCloseRealtime) {
@@ -319,6 +378,12 @@ export class MarketHub {
           : "Realtime tick source is not connected")),
       lastHttpAnchorCandleAt: this.lastHttpAnchorCandleTsMs ? new Date(this.lastHttpAnchorCandleTsMs).toISOString() : null,
       lastTickAt: this.lastTick?.ts || null,
+      lastValidTickAt: this.lastValidTick?.ts || null,
+      lastInvalidTickAt: this.lastInvalidTickAt,
+      invalidTickReason: this.invalidTickReason,
+      statusNowIso: new Date(nowMs).toISOString(),
+      statusLastTickAgeMs: staleMs,
+      hasValidTickData,
       staleMs
     };
   }
@@ -393,6 +458,8 @@ export class MarketHub {
         ts: new Date(lastBucket).toISOString()
       };
       this.lastTickMs = lastMs;
+      this.lastValidTick = { ...this.lastTick };
+      this.lastValidTickMs = this.lastTickMs;
       this.lastHttpAnchorCandleTsMs = lastMs;
       this.lastHttpAnchorMid = Number(last.close);
       this.current1mBucketMs = lastBucket;
@@ -539,6 +606,10 @@ export class MarketHub {
                 orderBookImbalance: Number(this.lastTick?.orderBookImbalance || 0),
                 ts: new Date(lastCandleMs).toISOString()
               };
+              if (this.isValidTick(this.lastTick)) {
+                this.lastValidTick = { ...this.lastTick };
+                this.lastValidTickMs = this.lastTickMs;
+              }
             }
           }
           this.fallbackSource = "LIVE_HTTP_POLL";
@@ -644,9 +715,10 @@ export class MarketHub {
         } finally {
           clearTimeout(t);
         }
-        const tick = normalizeGmoFxTickPayload(payload);
-        if (tick) return tick;
-        this.lastBridgeError = `GMO FX ticker payload did not contain a valid ${MARKET_HTTP_SYMBOL} quote`;
+        const normalized = normalizeGmoFxTickPayload(payload);
+        if (normalized.tick) return normalized.tick;
+        this.invalidTickReason = normalized.reason;
+        this.lastBridgeError = normalized.reason || `GMO FX ticker payload did not contain a valid ${MARKET_HTTP_SYMBOL} quote`;
       } catch (error) {
         this.lastBridgeError = String(error?.message || error);
       }
@@ -836,8 +908,10 @@ function isUsdJpyPrice(value) {
 }
 
 function normalizeGmoFxTickPayload(payload) {
-  const rows = flattenPayloadCandidates(payload);
+  const rows = Array.isArray(payload?.data) ? payload.data : flattenPayloadCandidates(payload);
   const symbolNeedle = normalizeSymbolName(MARKET_HTTP_SYMBOL);
+  let matchedSymbol = false;
+  let reason = "parsed bid/ask missing";
 
   for (const row of rows) {
     if (!row || typeof row !== "object") continue;
@@ -852,27 +926,40 @@ function normalizeGmoFxTickPayload(payload) {
       ?? ""
     );
     if (rowSymbol && symbolNeedle && rowSymbol !== symbolNeedle) continue;
+    matchedSymbol = true;
 
-    const bid = Number(row.bid ?? row.bestBid ?? row.buy ?? row.buyPrice ?? row.bidPrice ?? NaN);
-    const ask = Number(row.ask ?? row.bestAsk ?? row.sell ?? row.sellPrice ?? row.askPrice ?? NaN);
-    if (!Number.isFinite(bid) || !Number.isFinite(ask) || ask <= bid) continue;
-    if (!isUsdJpyPrice(bid) || !isUsdJpyPrice(ask)) continue;
+    const bidRaw = row.bid ?? row.bestBid ?? row.buy ?? row.buyPrice ?? row.bidPrice;
+    const askRaw = row.ask ?? row.bestAsk ?? row.sell ?? row.sellPrice ?? row.askPrice;
+    if (bidRaw == null || askRaw == null) {
+      reason = "parsed bid/ask missing";
+      continue;
+    }
+    const bid = Number(bidRaw);
+    const ask = Number(askRaw);
+    if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0 || ask <= bid) {
+      reason = "parsed bid/ask invalid";
+      continue;
+    }
 
-    const spreadPips = Math.max(MARKET_BASE_SPREAD_PIPS, (ask - bid) / 0.01);
-    const mid = (bid + ask) / 2;
-    const spreadAbs = spreadPips * 0.01;
-    const tsRaw = row.timestamp ?? row.time ?? row.updatedAt ?? row.updateTime ?? row.rateTime ?? row.serverTime;
+    const spreadPips = (ask - bid) / 0.01;
+    const tsRaw = row.timestamp ?? row.time ?? row.updatedAt ?? row.updateTime ?? row.rateTime ?? row.serverTime ?? payload?.responsetime;
     const tsMs = new Date(tsRaw || Date.now()).getTime();
     return {
-      bid: Number((mid - spreadAbs / 2).toFixed(3)),
-      ask: Number((mid + spreadAbs / 2).toFixed(3)),
-      spreadPips: Number(spreadPips.toFixed(2)),
-      orderBookImbalance: 0,
-      ts: new Date(Number.isFinite(tsMs) ? tsMs : Date.now()).toISOString()
+      tick: {
+        bid: Number(bid.toFixed(3)),
+        ask: Number(ask.toFixed(3)),
+        spreadPips: Number(spreadPips.toFixed(2)),
+        orderBookImbalance: 0,
+        ts: new Date(Number.isFinite(tsMs) ? tsMs : Date.now()).toISOString()
+      },
+      reason: null
     };
   }
 
-  return null;
+  return {
+    tick: null,
+    reason: matchedSymbol ? reason : "symbol not found in GMO FX ticker payload"
+  };
 }
 
 function isFxMarketOpen(nowMs) {
