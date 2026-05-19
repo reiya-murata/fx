@@ -1,0 +1,24 @@
+{
+  "name": "fx-demo-trade-engine",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test",
+    "demo": "node src/demo.js",
+    "start": "node src/server.js",
+    "retrain:bandit": "node scripts/retrain-bandit.js",
+    "backtest:summary": "node scripts/backtest-summary.js",
+    "backtest:wfa": "node scripts/walkforward-report.js",
+    "report:200": "node scripts/validation-report-200.js",
+    "report:execution-calibration": "node scripts/execution-calibration-report.js",
+    "report:cost-stress": "node scripts/backtest-cost-stress.js",
+    "report:go-readiness": "node scripts/report-go-readiness.js",
+    "report:profit-compare": "node scripts/report-profit-compare.js",
+    "report:weekly-frequency": "node scripts/report-weekly-frequency.js",
+    "report:monthly-performance": "node scripts/report-monthly-performance.js",
+    "report:ablation": "node scripts/report-ablation.js",
+    "bootstrap:data": "node scripts/bootstrap-data-ingest.js",
+    "tune:params": "node scripts/auto-tune-params.js"
+  }
+}

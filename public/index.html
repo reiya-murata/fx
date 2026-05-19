@@ -1,0 +1,446 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FXデモトレード</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="layout">
+      <!-- 結論バー -->
+      <section class="conclusion-bar" id="conclusionBar">
+        <div class="conclusion-main">
+          <span class="conclusion-label">判定</span>
+          <strong class="conclusion-action" id="conclusionAction">-</strong>
+        </div>
+        <div class="conclusion-meta">
+          <span id="conclusionReason" class="conclusion-reason">-</span>
+          <span class="badge" id="conclusionRealtime">-</span>
+          <span class="badge" id="conclusionSource">-</span>
+        </div>
+      </section>
+
+      <section class="panel hero">
+        <h1>USD/JPY デモトレード</h1>
+        <p>短期売買向けシミュレーション + AIアシスタント（リアルタイム運用）</p>
+      </section>
+
+      <section class="summary-strip">
+        <article class="summary-card"><span>現在資産</span><strong id="summaryEquity">-</strong></article>
+        <article class="summary-card"><span>本日損益</span><strong id="summaryDayPnl">-</strong></article>
+        <article class="summary-card"><span>自動売買</span><strong id="summaryAutoState">-</strong></article>
+        <article class="summary-card"><span>次回最大損失</span><strong id="summaryNextLoss">-</strong></article>
+        <article class="summary-card"><span>実効レバレッジ</span><strong id="summaryLeverage">-</strong></article>
+        <article class="summary-card"><span>資金段階</span><strong id="summaryTier">-</strong></article>
+        <article class="summary-card"><span>根拠スコア</span><strong id="summaryEvidence">-</strong></article>
+        <article class="summary-card"><span>5分/10分整合</span><strong id="summaryMtf">-</strong></article>
+        <article class="summary-card"><span>TREND_UP入口</span><strong id="summaryTrendQuality">-</strong></article>
+        <article class="summary-card"><span>取引許可</span><strong id="summaryTradePermission">-</strong></article>
+      </section>
+
+      <section class="grid-three dashboard-top">
+        <article class="panel account-panel">
+          <h2>口座</h2>
+          <div class="kpi"><span>初期残高</span><strong id="initial">-</strong></div>
+          <div class="kpi"><span>現在残高</span><strong id="current">-</strong></div>
+          <div class="kpi kpi-critical"><span>当日損益</span><strong id="dayPnl">-</strong></div>
+          <button id="resetBtn">口座リセット</button>
+          <button id="learningResetBtn">学習リセット</button>
+        </article>
+
+        <article class="panel auto-panel">
+          <h2>自動売買</h2>
+          <div class="auto-overview mono">
+            <div class="auto-status-line">
+              <span>状態</span>
+              <strong id="autoStatus" class="status-stopped">停止中</strong>
+            </div>
+            <div>
+              <span>最終処理</span>
+              <strong id="autoLast">-</strong>
+            </div>
+            <div>
+              <span>ガード</span>
+              <strong id="autoGuard">-</strong>
+            </div>
+            <div>
+              <span>本番条件</span>
+              <strong id="liveReadinessStatus">-</strong>
+            </div>
+            <div>
+              <span>市場入力</span>
+              <strong id="marketInputMode">-</strong>
+            </div>
+            <div>
+              <span>注文モード</span>
+              <strong id="paperLiveMode">-</strong>
+            </div>
+            <div class="full-width">
+              <span>警告</span>
+              <strong id="autoWarning" class="status-neutral">なし</strong>
+            </div>
+            <div class="full-width">
+              <span>常時学習</span>
+              <strong id="dailyLearningStatus">-</strong>
+            </div>
+          </div>
+          <div class="auto-split">
+            <div class="auto-form-block">
+              <form id="autoForm">
+                <label>実行モード
+                  <select name="autoExecutionMode" id="autoExecutionMode">
+                    <option value="PAPER_LIVE">ライブ相場 + 注文シミュレーション</option>
+                    <option value="LIVE">本番（実注文）</option>
+                  </select>
+                </label>
+                <p id="autoExecutionModeHint" class="mono auto-mode-hint">現在: PAPER_LIVE</p>
+                <label>1回あたりリスク（資産100%中の%）
+                  <input name="autoRiskPercentPerTrade" id="autoRiskPercentPerTrade" type="number" step="1" min="1" max="100" />
+                </label>
+                <label>エントリー判定間隔(秒)
+                  <input name="autoIntervalSec" id="autoIntervalSec" type="number" step="0.1" min="0.1" max="3600" />
+                </label>
+                <div class="asset-risk-box">
+                  <h3>資産・リスク設定</h3>
+                  <div class="asset-form-grid">
+                    <label>現在資産
+                      <input name="balanceJPY" id="balanceJPY" type="number" step="1000" min="1" />
+                    </label>
+                    <label>計算方式
+                      <select name="sizingMode" id="sizingMode">
+                        <option value="riskPercent">資産比率で計算</option>
+                        <option value="fixedRiskJPY">損失額を固定</option>
+                      </select>
+                    </label>
+                    <label>リスク比率(%)
+                      <input name="riskPercentPerTrade" id="riskPercentPerTrade" type="number" step="0.1" min="0.1" max="15" />
+                    </label>
+                    <label>1回の許容損失
+                      <input name="riskAmountJPY" id="riskAmountJPY" type="number" step="100" min="1" />
+                    </label>
+                    <label>実効レバレッジ上限
+                      <input name="maxEffectiveLeverage" id="maxEffectiveLeverage" type="number" step="0.1" min="1" max="25" />
+                    </label>
+                    <label>最大取引数量
+                      <input name="maxUnits" id="maxUnits" type="number" step="1" min="1" />
+                    </label>
+                  </div>
+                  <div class="risk-preview">
+                    <div><span>現在の資金段階</span><strong id="capitalTier">-</strong></div>
+                    <div><span>候補資金段階</span><strong id="candidateTier">-</strong></div>
+                    <div><span>昇格まで</span><strong id="promotionProgress">-</strong></div>
+                    <div><span>許可モード</span><strong id="allowedModes">-</strong></div>
+                    <div><span>FULL解放</span><strong id="fullUnlockStatus">-</strong></div>
+                    <div class="risk-main"><span>最大損失目安</span><strong id="riskEstimatedLoss">-</strong></div>
+                    <div><span>現在資産</span><strong id="riskBalance">-</strong></div>
+                    <div><span>1回の許容損失</span><strong id="riskAmount">-</strong></div>
+                    <div><span>リスク比率</span><strong id="riskPercent">-</strong></div>
+                    <div><span>推奨取引数量</span><strong id="riskUnits">-</strong></div>
+                    <div><span>必要証拠金目安</span><strong id="riskMargin">-</strong></div>
+                    <div><span>建玉総額目安</span><strong id="riskExposure">-</strong></div>
+                    <div><span>実効レバレッジ</span><strong id="riskLeverage">-</strong></div>
+                    <div><span>想定損切り幅</span><strong id="riskStopLoss">-</strong></div>
+                  </div>
+                  <p id="riskWarning" class="mono risk-warning">-</p>
+                  <button type="button" id="assetSettingsSaveBtn" class="asset-save-btn">資産設定を保存</button>
+                </div>
+                <div class="auto-form-actions">
+                  <button type="button" id="autoStartBtn" class="start-btn">自動売買開始</button>
+                  <button type="button" id="autoStopBtn" class="stop-btn">停止予約</button>
+                </div>
+              </form>
+              <p class="mono">学習/ニュース反映: システム自動運用</p>
+              <p class="mono auto-live-warning" id="autoLiveWarning">本番は未有効</p>
+            </div>
+            <div class="auto-status-block">
+              <div class="auto-section">
+                <h4>A. 現在の判断</h4>
+                <dl class="status-grid mono">
+                  <div><dt>候補</dt><dd id="candAction">-</dd></div>
+                  <div><dt>最終決定</dt><dd id="finalAction">-</dd></div>
+                  <div class="full-width"><dt>決定理由</dt><dd id="finalReason">-</dd></div>
+                  <div class="full-width"><dt>見送り理由(前回)</dt><dd id="autoSkipTop">-</dd></div>
+                </dl>
+              </div>
+              <div class="auto-section">
+                <h4>B. 市場データ</h4>
+                <dl class="status-grid mono">
+                  <div><dt>現在価格</dt><dd id="mktPrice">-</dd></div>
+                  <div><dt>Bid/Ask</dt><dd id="mktBidAsk">-</dd></div>
+                  <div><dt>Spread</dt><dd id="mktSpread">-</dd></div>
+                  <div><dt>Source/Mode</dt><dd id="mktSource">-</dd></div>
+                  <div><dt>状態</dt><dd id="mktRealtime">-</dd></div>
+                  <div><dt>鮮度(遅延)</dt><dd id="mktStale">-</dd></div>
+                </dl>
+              </div>
+              <div class="auto-section">
+                <h4>C. エントリー品質</h4>
+                <dl class="status-grid mono">
+                  <div><dt>根拠スコア</dt><dd id="entryEvidenceStatus">-</dd></div>
+                  <div><dt>最終カテゴリ</dt><dd id="finalCategory">-</dd></div>
+                  <div><dt>エントリー位置</dt><dd id="entryLocationStatus">-</dd></div>
+                  <div><dt>5分/10分整合</dt><dd id="multiTimeframeStatus">-</dd></div>
+                  <div><dt>TREND_UP入口</dt><dd id="trendUpQualityStatus">-</dd></div>
+                  <div class="full-width"><dt>再エントリー制御</dt><dd id="reentryStatus">-</dd></div>
+                  <div><dt>Up/Down比率</dt><dd id="udRatio">-</dd></div>
+                  <div><dt>期待Up(pips)</dt><dd id="expUp">-</dd></div>
+                  <div><dt>想定Down(pips)</dt><dd id="estDown">-</dd></div>
+                </dl>
+              </div>
+              <div class="auto-section">
+                <h4>D. ブロック理由(preTradeGuard)</h4>
+                <div id="preTradeGuardInfo" class="mono block-reason-box">-</div>
+              </div>
+              <div class="auto-section">
+                <h4>E. ロット・リスク</h4>
+                <dl class="status-grid mono">
+                  <div><dt>取引数量</dt><dd id="riskUnitsApplied">-</dd></div>
+                  <div><dt>実効レバレッジ</dt><dd id="riskLeverageApplied">-</dd></div>
+                  <div><dt>想定損失</dt><dd id="riskLossApplied">-</dd></div>
+                  <div><dt>必要証拠金</dt><dd id="riskMarginApplied">-</dd></div>
+                  <div class="full-width"><dt>SL算出元</dt><dd id="riskSlSource">-</dd></div>
+                </dl>
+                <p id="slFallbackWarning" class="warning-banner" style="display:none;">PAPER_LIVEではfallback SL使用中。LIVEではブロック対象です。</p>
+                <p id="leverageLimitWarning" class="warning-banner" style="display:none;">レバレッジ上限付近。数量は上限で調整されています</p>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>アシスタントシグナル</h2>
+          <div class="kpi"><span>推奨</span><strong id="action">-</strong></div>
+          <div class="kpi"><span>信頼度</span><strong id="confidence">-</strong></div>
+          <div class="kpi"><span>相場局面</span><strong id="regime">-</strong></div>
+          <p class="mono">更新時刻: <span id="signalUpdatedAt">-</span></p>
+          <p class="mono">市場時刻: <span id="signalMarketTs">-</span></p>
+          <p class="mono">判定ID: <span id="signalInputHash">-</span></p>
+          <p id="rationale">-</p>
+          <div class="reason-tags" id="holdReasonTags"></div>
+          <p class="mono">エントリー: <span id="entry">-</span></p>
+          <p class="mono">SL: <span id="sl">-</span> / TP: <span id="tp">-</span></p>
+          <p class="mono">学習: <span id="learning">-</span></p>
+          <p class="mono">ニュース: <span id="newsBias">-</span></p>
+          <div class="hold-card" id="holdCard" style="display:none;">
+            <h4>なぜHOLDか？</h4>
+            <p id="holdReason">-</p>
+            <p id="holdCategory" class="mono">-</p>
+            <div id="holdFailedReasons" class="reason-tags"></div>
+            <p id="holdProbeReasons" class="mono" style="margin-top:4px;"></p>
+          </div>
+        </article>
+      </section>
+
+      <section class="workspace-grid">
+        <section class="panel chart-panel">
+          <h2 id="chartTitle">価格チャート(1分足)</h2>
+          <div class="chart-headline">
+            <div class="chart-symbol" id="chartSymbol">USD/JPY</div>
+            <div class="chart-ohlc">
+              <div><b>Mid</b><span id="mid">-</span></div>
+              <div><b class="high">Ask</b><span id="ask">-</span></div>
+              <div><b class="low">Bid</b><span id="bid">-</span></div>
+              <div><b>Spr</b><span id="spread">-</span></div>
+              <div><b>Δ</b><span id="tickDelta">-</span></div>
+              <div><b>状態</b><span id="marketOpen">-</span></div>
+              <div><b>Src</b><span id="marketSource">-</span></div>
+              <div><b>更新</b><span id="tickerTs">-</span></div>
+              <div><b class="high">Ask</b><span id="chartAsk">-</span></div>
+              <div><b class="low">Bid</b><span id="chartBid">-</span></div>
+              <div><b>Spr</b><span id="chartSpread" class="spread-badge">-</span></div>
+            </div>
+          </div>
+          <p class="mono chart-cost" id="costProfile">-</p>
+          <div class="chart-meta mono" id="chartMeta">移動平均 <span class="ma10">移動平均1(10)</span> <span class="ma25">移動平均2(25)</span> <span class="ma75">移動平均3(75)</span></div>
+          <div id="priceChart"></div>
+          <div id="quoteBoard" class="quote-board"></div>
+          <div class="tf-tabs" id="tfTabs">
+            <button type="button" class="tf-tab is-active" data-tf="1m">1分</button>
+            <button type="button" class="tf-tab" data-tf="5m">5分</button>
+            <button type="button" class="tf-tab" data-tf="15m">15分</button>
+            <button type="button" class="tf-tab" data-tf="1h">1時間</button>
+            <button type="button" class="tf-tab" data-tf="1d">日</button>
+          </div>
+          <div class="chart-info mono" id="chartInfo">-</div>
+        </section>
+
+        <article class="panel position-panel">
+          <h2>保有ポジション</h2>
+          <div id="positionRows" class="position-cards"></div>
+        </article>
+      </section>
+
+      <section class="grid-two data-grid">
+        <article class="panel">
+          <h2>取引履歴</h2>
+          <div class="table-scroll">
+            <table class="trade-table">
+              <thead>
+                <tr>
+                  <th>時刻</th>
+                  <th>売買</th>
+                  <th>エントリー</th>
+                  <th>決済</th>
+                  <th>取引数量</th>
+                  <th>損益</th>
+                </tr>
+              </thead>
+              <tbody id="tradeRows"></tbody>
+            </table>
+          </div>
+        </article>
+        <article class="panel">
+          <h2>分析</h2>
+          <div class="grid-four">
+            <div class="metric"><span>取引数</span><strong id="mTrades">-</strong></div>
+            <div class="metric"><span>勝率</span><strong id="mWinRate">-</strong></div>
+            <div class="metric"><span>純利益</span><strong id="mNet">-</strong></div>
+            <div class="metric"><span>PF</span><strong id="mPf">-</strong></div>
+          </div>
+          <p class="mono" id="benchmarkStatus">ベンチ判定: -</p>
+          <div class="table-scroll analytics-scroll">
+            <table class="trade-table">
+              <thead>
+                <tr>
+                  <th>イベント/タグ</th>
+                  <th>取引数</th>
+                  <th>勝率</th>
+                  <th>純益</th>
+                  <th>PF</th>
+                </tr>
+              </thead>
+              <tbody id="eventImpactRows"></tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel report-panel">
+        <h2>運用レポート</h2>
+        <div class="grid-two report-kpi">
+          <div class="metric"><span>週次 hard block</span><strong id="weeklyHardBlock">-</strong></div>
+          <div class="metric"><span>週次 rescue</span><strong id="weeklyRescue">-</strong></div>
+          <div class="metric"><span>SEMI+FULL比率</span><strong id="weeklySemiFullShare">-</strong></div>
+          <div class="metric"><span>FULL比率</span><strong id="weeklyFullShare">-</strong></div>
+          <div class="metric"><span>月次 OOS PF</span><strong id="monthlyOosPf">-</strong></div>
+          <div class="metric"><span>月次 OOS ExpR</span><strong id="monthlyOosExp">-</strong></div>
+          <div class="metric"><span>PF（position単位）</span><strong id="monthlyPositionPf">-</strong></div>
+          <div class="metric"><span>PF（trade row単位）</span><strong id="monthlyTradeRowPf">-</strong></div>
+          <div class="metric"><span>勝率（position単位）</span><strong id="monthlyPositionWinRate">-</strong></div>
+          <div class="metric"><span>勝率（trade row単位）</span><strong id="monthlyTradeRowWinRate">-</strong></div>
+          <div class="metric"><span>利益最適化スコア</span><strong id="profitOptimizationScore">-</strong></div>
+          <div class="metric"><span>月次 判定</span><strong id="monthlyGoNoGo">-</strong></div>
+          <div class="metric"><span>Stress x1.5 ExpR</span><strong id="monthlyStress15">-</strong></div>
+        </div>
+        <div class="winrate-split">
+          <article class="winrate-card">
+            <span>全取引ベース勝率</span>
+            <strong id="reportApiWinRate">-</strong>
+            <small>/api/v1/trades相当・全決済理由を含む</small>
+            <em id="reportApiTradesCount">-</em>
+          </article>
+          <article class="winrate-card">
+            <span>monthly report対象勝率</span>
+            <strong id="reportMonthlyWinRate">-</strong>
+            <small>auto-* exitReason のみ</small>
+            <em id="reportMonthlyTradesCount">-</em>
+          </article>
+          <article class="winrate-card">
+            <span>新ロジック勝率</span>
+            <strong id="reportNewLogicWinRate">-</strong>
+            <small>loose: 根拠スコアあり（一部ログ欠損を含む）/ 検証中</small>
+            <em id="reportNewLogicTradesCount">-</em>
+          </article>
+          <article class="winrate-card">
+            <span>完全ログ付き新ロジック勝率</span>
+            <strong id="reportNewLogicStrictWinRate">-</strong>
+            <small>strict: 根拠/位置/MTF/decisionTrace が全てあり / 検証中</small>
+            <em id="reportNewLogicStrictTradesCount">-</em>
+          </article>
+        </div>
+        <div class="report-diagnostics mono">
+          <div><span>除外行</span><strong id="reportExcludedRows">-</strong></div>
+          <div><span>除外理由</span><strong id="reportExcludedReasonSummary">-</strong></div>
+          <div><span>勝率ズレ検出</span><strong id="reportDifferenceDetected">-</strong></div>
+          <div><span>最新決済</span><strong id="reportLatestTradeExitTime">-</strong></div>
+          <div><span>新ロジック件数</span><strong id="reportNewLogicTotalTrades">-</strong></div>
+          <div><span>旧ロジック件数</span><strong id="reportLegacyLogicTotalTrades">-</strong></div>
+        </div>
+        <p class="mono" id="reportGeneratedAt">-</p>
+        <div class="report-controls">
+          <button type="button" id="refreshReportBtn">レポート更新</button>
+          <input id="ablationInput" type="text" value="fullOff,semiOff,aggressiveOff" />
+          <button type="button" id="runAblationBtn">Ablation実行</button>
+        </div>
+        <p class="mono" id="ablationSummary">-</p>
+      </section>
+
+      <section class="panel diagnostics-panel">
+        <h2>内部診断（可視化）</h2>
+        <div class="diag-grid">
+          <div class="metric"><span>運用モード</span><strong id="diagTradeMode">-</strong></div>
+          <div class="metric"><span>保護段階</span><strong id="diagRescueStage">-</strong></div>
+          <div class="metric"><span>エッジ強度</span><strong id="diagEdgeScore">-</strong></div>
+          <div class="metric"><span>約定品質</span><strong id="diagExecQuality">-</strong></div>
+          <div class="metric"><span>尾部リスク補正</span><strong id="diagTailPenalty">-</strong></div>
+          <div class="metric"><span>DDブレーキ</span><strong id="diagRiskBrake">-</strong></div>
+          <div class="metric"><span>直近期待値/PF</span><strong id="diagRolling">-</strong></div>
+          <div class="metric"><span>DD/連敗</span><strong id="diagKill">-</strong></div>
+          <div class="metric"><span>遅延 P95/P99</span><strong id="diagP95P99">-</strong></div>
+          <div class="metric"><span>拒否率</span><strong id="diagRejectRate">-</strong></div>
+          <div class="metric"><span>スリップ P95</span><strong id="diagSlipP95">-</strong></div>
+          <div class="metric"><span>統計サンプル数</span><strong id="diagTelemetryN">-</strong></div>
+          <div class="metric"><span>根拠スコア</span><strong id="diagEvidence">-</strong></div>
+          <div class="metric"><span>エントリー位置</span><strong id="diagEntryLocation">-</strong></div>
+          <div class="metric"><span>5分/10分整合</span><strong id="diagMtf">-</strong></div>
+          <div class="metric"><span>TREND_UP入口</span><strong id="diagTrendEntry">-</strong></div>
+        </div>
+        <p class="mono" id="diagEligibility">モード可否: -</p>
+        <p class="mono" id="diagLearningMemory">学習メモリ: -</p>
+        <details class="trace-details">
+          <summary>判断プロセス詳細 (タイムライン)</summary>
+          <div id="decisionTimeline" class="timeline-container"></div>
+        </details>
+        <details class="trace-details">
+          <summary>判断プロセス詳細 (JSON)</summary>
+          <pre id="decisionTraceText">-</pre>
+        </details>
+        <details class="trace-details">
+          <summary>サイズ倍率の内訳</summary>
+          <pre id="sizingTraceText">-</pre>
+        </details>
+        <details class="trace-details">
+          <summary>見送り診断</summary>
+          <pre id="noActionableTraceText">-</pre>
+        </details>
+      </section>
+
+      <section class="panel news-panel">
+        <h2>関連ニュース(自動取得)</h2>
+        <p class="mono" id="newsStatus">-</p>
+        <div class="news-tabs" id="newsTabs">
+          <button type="button" class="news-tab is-active" data-news-tab="all">全体</button>
+          <button type="button" class="news-tab" data-news-tab="jp">日本</button>
+          <button type="button" class="news-tab" data-news-tab="us">米国</button>
+          <button type="button" class="news-tab" data-news-tab="high">重要</button>
+        </div>
+        <div class="news-scroll">
+          <table class="trade-table">
+            <thead>
+              <tr>
+                <th>日時</th>
+                <th>重要度</th>
+                <th>要因と想定影響</th>
+                <th>配信元</th>
+              </tr>
+            </thead>
+            <tbody id="newsRows"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+    <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
