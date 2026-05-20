@@ -141,6 +141,7 @@ export function evaluatePreTradeGuard({
     : Number(cfg.maxSpreadPips || 0.34) + gmoHttpSpreadRelax;
 
   const isGmoFxSource = String(httpProvider).toUpperCase() === "GMO_FX" || String(marketSource).toUpperCase() === "LIVE_HTTP_GMO";
+  const isGmoFxHttpPoll = isGmoFxSource && String(marketInputMode).toUpperCase() === "HTTP_POLL";
   const gmoHttpPollRelaxed = isGmoFxSource &&
     String(marketInputMode).toUpperCase() === "HTTP_POLL" &&
     marketRealtime === true &&
@@ -148,8 +149,11 @@ export function evaluatePreTradeGuard({
 
   const originalSpreadGatePips = rawMaxSpreadGate;
   let appliedSpreadGatePips = originalSpreadGatePips;
+  if (isGmoFxHttpPoll) {
+    appliedSpreadGatePips = Math.max(appliedSpreadGatePips, 0.5);
+  }
   if (gmoHttpPollRelaxed) {
-    appliedSpreadGatePips = Math.max(appliedSpreadGatePips, 0.55);
+    appliedSpreadGatePips = Math.max(appliedSpreadGatePips, 0.5);
   }
 
   if (spreadPips > appliedSpreadGatePips) {

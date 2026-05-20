@@ -117,6 +117,8 @@ export function buildBlockingSummary(input = {}) {
     contextValidationReason: contextValidation.validationReason || contextValidation.originalReason || contextValidation.reason || "",
     contextValidationAllowed: typeof contextValidation.allowed === "boolean" ? contextValidation.allowed : null,
     contextValidationMode: contextValidation.validationMode || contextValidation.appliedMode || contextValidation.mode || contextValidation.status || "UNKNOWN",
+    contextValidationCollectOnly: Boolean(contextValidation.collectOnly),
+    liveAllowed: typeof contextValidation.liveAllowed === "boolean" ? contextValidation.liveAllowed : null,
     knownContext: typeof contextValidation.knownContext === "boolean" ? contextValidation.knownContext : null,
     bootstrapUsed: typeof contextValidation.bootstrapUsed === "boolean" ? contextValidation.bootstrapUsed : null,
     quickAdverseProne: typeof entryEvidenceBreakdown.quickAdverseProne === "boolean"

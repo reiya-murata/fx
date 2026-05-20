@@ -1370,6 +1370,80 @@ function runAutoTraderTick() {
   autoRuntime.lastEntryLocationDiagnostics = entryLocationDiagnostics;
   autoRuntime.lastTrendUpEntryQuality = entryLocationDiagnostics;
   autoRuntime.lastEntryEvidenceBreakdown = entryEvidenceDiagnostics.entryEvidenceBreakdown;
+  let quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
+    side: signal.action === "BUY" ? "LONG" : "SHORT",
+    entryLocationDiagnostics,
+    multiTimeframeDiagnostics,
+    preTradeGuard: { allowed: true, spreadPips: ticker.spreadPips, executionStress: 0 },
+    entryEvidenceScore: Number(entryEvidenceDiagnostics.entryEvidenceScore || 0),
+    decisionCategory: entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategoryBeforeQuickAdversePenalty
+      || entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategory
+      || entryEvidenceDiagnostics.finalCategory,
+    ticker,
+    executionProfile: {}
+  });
+  let quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics({
+    ...quickAdverseRiskDiagnostics,
+    entryLocationCategory: entryLocationDiagnostics.entryLocationCategory,
+    decisionCategory: entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategoryBeforeQuickAdversePenalty
+      || entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategory
+      || entryEvidenceDiagnostics.finalCategory
+  }, banditDecision.contextKey);
+  entryEvidenceDiagnostics = buildEntryEvidenceDiagnostics({
+    signal,
+    preTradeGuard: { allowed: true, edgeAfterBuffer: signal?.metrics?.expectedValuePips || 0, spreadPips: ticker.spreadPips, spreadGatePips: 0.8 },
+    contextValidation: { allowed: true },
+    executionTailGate,
+    mtf: multiTimeframeDiagnostics,
+    entryLocation: entryLocationDiagnostics,
+    quickAdverseProneDiagnostics
+  });
+  quickAdverseProneDiagnostics.entryEvidenceScore = Number(entryEvidenceDiagnostics.entryEvidenceScore || 0);
+  autoRuntime.lastEntryEvidenceBreakdown = entryEvidenceDiagnostics.entryEvidenceBreakdown;
+  if (quickAdverseProneDiagnostics.prone) {
+    const blockedEntryEvidenceDiagnostics = {
+      ...entryEvidenceDiagnostics,
+      finalCategory: "QUICK_ADVERSE_PRONE_BLOCKED",
+      probeLowRateEligible: false,
+      entryEvidenceBreakdown: {
+        ...entryEvidenceDiagnostics.entryEvidenceBreakdown,
+        finalCategory: "QUICK_ADVERSE_PRONE_BLOCKED"
+      }
+    };
+    const finalReason = "quick adverse prone pattern blocked";
+    const decisionTrace = buildDecisionTrace({
+      signal,
+      finalAction: "HOLD",
+      finalReason,
+      mtf: multiTimeframeDiagnostics,
+      evidence: blockedEntryEvidenceDiagnostics,
+      entryLocation: entryLocationDiagnostics,
+      preTradeGuard: { allowed: true },
+      reentryGuard,
+      executionTailGate,
+      quickAdverseProneDiagnostics
+    });
+    autoRuntime.lastDecisionTrace = decisionTrace;
+    autoRuntime.lastNoActionableSignalDiagnostics = {
+      reason: finalReason,
+      category: "QUICK_ADVERSE_PRONE_BLOCKED",
+      candidateSide: signal.action || "HOLD",
+      quickAdverseProneDiagnostics
+    };
+    autoRuntime.lastAction = "HOLD";
+    autoRuntime.lastSkipReason = finalReason;
+    autoRuntime.lastEntryEvidenceBreakdown = blockedEntryEvidenceDiagnostics.entryEvidenceBreakdown;
+    withState((s) => appendAudit(s, "auto.skip", {
+      reason: finalReason,
+      blockedStage: "quick_adverse_prone_guard",
+      quickAdverseProneDiagnostics,
+      entryEvidenceScore: Number(entryEvidenceDiagnostics.entryEvidenceScore || 0),
+      entryEvidenceBreakdown: blockedEntryEvidenceDiagnostics.entryEvidenceBreakdown,
+      entryLocationDiagnostics,
+      decisionTrace
+    }));
+    return;
+  }
   const noTradeZone = evaluateNoTradeZone({
     ticker,
     signal,
@@ -1679,7 +1753,7 @@ function runAutoTraderTick() {
   const currentExecMode = normalizeAutoExecutionMode(loadState().settings?.autoExecutionMode);
   const isStrongBase = entryEvidenceDiagnostics?.entryEvidenceBreakdown?.finalCategory === "STRONG_BASE";
   const evidenceScore = Number(entryEvidenceDiagnostics?.entryEvidenceScore || 0);
-  const isPaperLive = currentExecMode === "PAPER_LIVE" || currentExecMode === "PAPER";
+  const isPaperLive = currentExecMode === "PAPER_LIVE";
 
   if (!contextValidation.allowed) {
     contextValidation.originalReason = contextValidation.reason;
@@ -1687,7 +1761,9 @@ function runAutoTraderTick() {
     contextValidation.entryEvidenceScore = evidenceScore;
 
     let bypassMode = "BLOCK";
-    if (isStrongBase && evidenceScore >= 0.80 && isPaperLive) {
+    if (isPaperLive) {
+      bypassMode = "COLLECT_ONLY";
+    } else if (isStrongBase && evidenceScore >= 0.80 && currentExecMode === "PAPER") {
       bypassMode = "WARN_ONLY";
     }
 
@@ -1744,13 +1820,26 @@ function runAutoTraderTick() {
         appliedMode: "BLOCK"
       }));
       return;
+    } else if (bypassMode === "COLLECT_ONLY") {
+      contextValidation.appliedMode = "COLLECT_ONLY";
+      contextValidation.allowed = true;
+      contextValidation.pass = true;
+      contextValidation.validationOnly = false;
+      contextValidation.collectOnly = true;
+      contextValidation.liveAllowed = false;
+      contextValidation.reason = "PAPER_LIVE collect-only for unvalidated context";
+      contextValidation.validationReason = contextValidation.reason;
     } else {
       contextValidation.appliedMode = "WARN_ONLY";
       contextValidation.allowed = true;
+      contextValidation.collectOnly = false;
+      contextValidation.liveAllowed = false;
       contextValidation.reason = "未検証コンテキストですが、STRONG_BASE・高スコアかつ非LIVE環境のためwarn-onlyとして通過します";
     }
   } else {
     contextValidation.appliedMode = "PASS";
+    contextValidation.collectOnly = false;
+    contextValidation.liveAllowed = true;
     contextValidation.originalReason = contextValidation.reason;
     contextValidation.finalCategory = entryEvidenceDiagnostics?.entryEvidenceBreakdown?.finalCategory;
     contextValidation.entryEvidenceScore = evidenceScore;
@@ -1851,17 +1940,26 @@ function runAutoTraderTick() {
     mtf: multiTimeframeDiagnostics,
     entryLocation: entryLocationDiagnostics
   });
-  let quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
+  quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
     side: signal.action === "BUY" ? "LONG" : "SHORT",
     entryLocationDiagnostics,
     multiTimeframeDiagnostics,
     preTradeGuard,
     entryEvidenceScore: Number(entryEvidenceDiagnostics.entryEvidenceScore || 0),
-    decisionCategory: entryEvidenceDiagnostics.finalCategory,
+    decisionCategory: entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategoryBeforeQuickAdversePenalty
+      || entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategory
+      || entryEvidenceDiagnostics.finalCategory,
     ticker,
     executionProfile
   });
-  let quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics);
+  quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics({
+    ...quickAdverseRiskDiagnostics,
+    entryLocationCategory: entryLocationDiagnostics.entryLocationCategory,
+    decisionCategory: entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategoryBeforeQuickAdversePenalty
+      || entryEvidenceDiagnostics.entryEvidenceBreakdown?.finalCategory
+      || entryEvidenceDiagnostics.finalCategory,
+    session: executionProfile.session
+  }, banditDecision.contextKey || contextValidation.contextKey);
   entryEvidenceDiagnostics = buildEntryEvidenceDiagnostics({
     signal,
     preTradeGuard,
@@ -2439,7 +2537,8 @@ function runAutoTraderTick() {
     preTradeGuard,
     reentryGuard,
     positionSizingDiagnostics,
-    executionTailGate
+    executionTailGate,
+    contextValidation
   });
   autoRuntime.lastSizingTrace = sizingTrace;
   autoRuntime.lastDecisionTrace = decisionTrace;
@@ -2587,6 +2686,9 @@ function runAutoTraderTick() {
     multiplierContributors: topMultiplierContributors,
     slippageRisk: Number(slippageRisk.toFixed(4)),
     validationMode: contextValidation.mode,
+    contextValidationCollectOnly: Boolean(contextValidation.collectOnly),
+    liveAllowed: Boolean(contextValidation.liveAllowed),
+    contextValidationMode: contextValidation.appliedMode || contextValidation.mode,
     validationSizeMultiplier,
     ensembleScore: Number(ensembleGate.score || 0),
     ensembleSizeMultiplier,
@@ -2674,6 +2776,9 @@ function runAutoTraderTick() {
     multiplierContributors: topMultiplierContributors,
     slippageRisk: Number(slippageRisk.toFixed(4)),
     validationMode: contextValidation.mode,
+    contextValidationCollectOnly: Boolean(contextValidation.collectOnly),
+    liveAllowed: Boolean(contextValidation.liveAllowed),
+    contextValidationMode: contextValidation.appliedMode || contextValidation.mode,
     validationSizeMultiplier,
     ensembleScore: Number(ensembleGate.score || 0),
     ensembleSizeMultiplier,
@@ -3228,6 +3333,10 @@ function closeAutoPositions(state, marketTick, { forceCloseAll, stopRequested = 
             executionEventStress: Number(position.executionEventStress || 0),
             executionEventTag: position.executionEventTag || null,
             tradeMode: position.tradeMode || "BASE",
+            executionMode: normalizeExecutionModeInput(position.executionMode, "PAPER_LIVE"),
+            contextValidationCollectOnly: Boolean(position.contextValidationCollectOnly),
+            liveAllowed: Boolean(position.liveAllowed),
+            contextValidationMode: position.contextValidationMode || position.validationMode || null,
             executionQualityScore: Number(position.executionQualityScore || 0),
             tailPenaltyMultiplier: Number(position.tailPenaltyMultiplier || position.tailAwareSizeMultiplier || 1),
             finalSizeMultiplier: Number(position.finalSizeMultiplier || position.sizingMultiplier || 1),
@@ -3459,6 +3568,9 @@ function closeAutoPositions(state, marketTick, { forceCloseAll, stopRequested = 
       executionEventTag: position.executionEventTag || null,
       tradeMode: position.tradeMode || "BASE",
       executionMode: normalizeExecutionModeInput(position.executionMode, "PAPER_LIVE"),
+      contextValidationCollectOnly: Boolean(position.contextValidationCollectOnly),
+      liveAllowed: Boolean(position.liveAllowed),
+      contextValidationMode: position.contextValidationMode || position.validationMode || null,
       executionQualityScore: Number(position.executionQualityScore || 0),
       tailPenaltyMultiplier: Number(position.tailPenaltyMultiplier || position.tailAwareSizeMultiplier || 1),
       finalSizeMultiplier: Number(position.finalSizeMultiplier || position.sizingMultiplier || 1),
@@ -5080,10 +5192,13 @@ function buildQuickAdverseRiskDiagnostics({
   };
 }
 
-function buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics = {}) {
+function buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics = {}, contextKey = "") {
   const entryLocationCategory = String(quickAdverseRiskDiagnostics.entryLocationCategory || "UNKNOWN");
   const decisionCategory = String(quickAdverseRiskDiagnostics.decisionCategory || "UNKNOWN");
-  const session = String(quickAdverseRiskDiagnostics.session || "UNKNOWN").toUpperCase();
+  const contextSession = String(contextKey || "").split("|").find((part) => part.startsWith("sess:"))?.slice(5);
+  const directSessionRaw = String(quickAdverseRiskDiagnostics.executionSession || quickAdverseRiskDiagnostics.session || "").toUpperCase();
+  const directSession = directSessionRaw && directSessionRaw !== "UNKNOWN" ? directSessionRaw : "";
+  const session = String(directSession || contextSession || "UNKNOWN").toUpperCase();
   const prone = entryLocationCategory === "validPullbackEntry"
     && ["PROBE_CANDIDATE", "STRONG_BASE"].includes(decisionCategory)
     && ["LONDON", "NY"].includes(session);
@@ -5177,7 +5292,7 @@ function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contex
   };
 }
 
-function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "", mtf = {}, evidence = {}, entryLocation = {}, preTradeGuard = {}, reentryGuard = {}, positionSizingDiagnostics = {}, executionTailGate = {}, quickAdverseProneDiagnostics = null } = {}) {
+function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "", mtf = {}, evidence = {}, entryLocation = {}, preTradeGuard = {}, reentryGuard = {}, positionSizingDiagnostics = {}, executionTailGate = {}, quickAdverseProneDiagnostics = null, contextValidation = null } = {}) {
     return {
         timestamp: new Date().toISOString(),
         executionMode: normalizeAutoExecutionMode(loadState().settings?.autoExecutionMode),
@@ -5191,8 +5306,20 @@ function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "
             { name: "signal_generation", status: signal.action === "HOLD" ? "hold" : "pass", details: { rationale: signal.rationale || null } },
             { name: "multi_timeframe", status: safeNum(mtf.multiTimeframeScore, 0.5) >= 0.45 ? "pass" : "warning", details: mtf },
             { name: "entry_evidence", status: evidence.finalCategory === "STRONG_BASE" ? "pass" : (evidence.probeLowRateEligible ? "probe" : "blocked"), details: evidence.entryEvidenceBreakdown || {} },
-            { name: "quick_adverse_prone_guard", status: quickAdverseProneDiagnostics?.prone ? "blocked" : "pass", details: quickAdverseProneDiagnostics || {} },
             { name: "trend_up_entry_quality", status: entryLocation.lateEntryDetected ? "warning" : "pass", details: entryLocation },
+            { name: "quick_adverse_prone_guard", status: quickAdverseProneDiagnostics?.prone ? "blocked" : "pass", details: quickAdverseProneDiagnostics || {} },
+            ...(contextValidation?.collectOnly ? [{
+              name: "context_validation",
+              status: "collect_only",
+              details: {
+                executionMode: normalizeAutoExecutionMode(loadState().settings?.autoExecutionMode),
+                contextKey: contextValidation.contextKey || "",
+                contextSampleCount: contextValidation.contextSampleCount ?? contextValidation.exactCount ?? null,
+                requiredSamples: contextValidation.requiredSamples ?? null,
+                validationMode: contextValidation.appliedMode || contextValidation.mode || "UNKNOWN",
+                reason: "PAPER_LIVE collect-only for unvalidated context"
+              }
+            }] : []),
             { name: "pre_trade_guard", status: preTradeGuard.allowed === false ? "blocked" : "pass", details: preTradeGuard },
             { name: "reentry_guard", status: reentryGuard.blocked ? (reentryGuard.downgradedToProbeLowRate ? "probe" : "blocked") : "pass", details: reentryGuard },
             { name: "position_sizing", status: positionSizingDiagnostics.blockedReason ? "blocked" : (positionSizingDiagnostics.cappedByMaxUnits || positionSizingDiagnostics.cappedByLeverage ? "capped" : "pass"), details: positionSizingDiagnostics },

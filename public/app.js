@@ -514,29 +514,8 @@ function renderTicker(t) {
 
 function renderQuoteBoard(mid, spreadPips) {
   const el = $("quoteBoard");
-  if (!el || !Number.isFinite(mid)) return;
-  const pip = 0.01;
-  const spread = Math.max(0.05, Number(spreadPips || 0.2));
-  const rows = [];
-  for (let i = 3; i >= 1; i -= 1) {
-    const p = mid + ((spread / 2) + i * 0.12) * pip;
-    const w = 28 + i * 18;
-    rows.push({ side: "ASK", price: p, width: w, cls: "ask" });
-  }
-  rows.push({ side: "ASK", price: mid + (spread / 2) * pip, width: 84, cls: "ask" });
-  rows.push({ side: "BID", price: mid - (spread / 2) * pip, width: 84, cls: "bid" });
-  for (let i = 1; i <= 3; i += 1) {
-    const p = mid - ((spread / 2) + i * 0.12) * pip;
-    const w = 28 + i * 18;
-    rows.push({ side: "BID", price: p, width: w, cls: "bid" });
-  }
-  el.innerHTML = rows.map((r) => `
-    <div class="quote-row">
-      <div class="quote-side ${r.cls}">${r.side}</div>
-      <div class="quote-bar ${r.cls}"><i style="width:${Math.min(96, r.width)}%"></i></div>
-      <div class="quote-price">${fmt(r.price, 3)}</div>
-    </div>
-  `).join("");
+  if (!el) return;
+  el.innerHTML = "";
 }
 
 function renderSignal(s) {

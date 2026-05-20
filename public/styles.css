@@ -1382,6 +1382,7 @@ button {
 }
 
 .quote-board {
+  display: none;
   margin-top: 10px;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
