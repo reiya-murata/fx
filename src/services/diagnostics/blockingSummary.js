@@ -19,6 +19,9 @@ function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTrade
   if (reason.includes("LIVE_DISCONNECTED") || reason.includes("リアルタイム未接続")) {
     return "リアルタイム価格ソース、marketStatus.realtime、tickerのbid/askを確認してください";
   }
+  if (finalBlockStage === "signal_generation") {
+    return "売買シグナルが未確定です。レンジ位置・ブレイク条件・スプレッド条件を確認してください";
+  }
   if (finalCategory === "PROBE_CANDIDATE") {
     return "PROBE候補は実行対象にせず、記録専用にするか基準を再確認してください";
   }
@@ -38,9 +41,6 @@ function suggestedFixFor({ finalCategory, finalBlockStage, finalReason, preTrade
   }
   if (finalBlockStage === "position_sizing" || positionSizingBlockedReason) {
     return "数量計算・レバレッジ上限・stopLoss の有無を確認してください";
-  }
-  if (finalBlockStage === "signal_generation") {
-    return "売買シグナル生成条件を確認してください";
   }
   return "追加対応不要。ログの推移を確認してください";
 }
