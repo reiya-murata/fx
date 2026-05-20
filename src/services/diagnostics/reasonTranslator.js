@@ -6,6 +6,7 @@ const REASON_REPLACEMENTS = [
   ["rsi1m not supportive for sell", "1分足RSIが売り方向を支持していません"],
   ["momentum breakout", "モメンタムブレイク"],
   ["range momentum", "レンジ内モメンタム"],
+  ["quick adverse prone pattern blocked", "直後逆行しやすい入口パターンのため停止"],
   ["blocked: No trade signal", "売買シグナルなし"],
   ["validation-only: unvalidated context", "未検証コンテキストのため検証モードで停止"],
   ["context validation", "相場コンテキスト検証"],

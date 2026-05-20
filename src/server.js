@@ -1851,7 +1851,28 @@ function runAutoTraderTick() {
     mtf: multiTimeframeDiagnostics,
     entryLocation: entryLocationDiagnostics
   });
+  let quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
+    side: signal.action === "BUY" ? "LONG" : "SHORT",
+    entryLocationDiagnostics,
+    multiTimeframeDiagnostics,
+    preTradeGuard,
+    entryEvidenceScore: Number(entryEvidenceDiagnostics.entryEvidenceScore || 0),
+    decisionCategory: entryEvidenceDiagnostics.finalCategory,
+    ticker,
+    executionProfile
+  });
+  let quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics);
+  entryEvidenceDiagnostics = buildEntryEvidenceDiagnostics({
+    signal,
+    preTradeGuard,
+    contextValidation,
+    executionTailGate,
+    mtf: multiTimeframeDiagnostics,
+    entryLocation: entryLocationDiagnostics,
+    quickAdverseProneDiagnostics
+  });
   const entryEvidenceScore = Number(entryEvidenceDiagnostics.entryEvidenceScore || 0);
+  quickAdverseProneDiagnostics.entryEvidenceScore = entryEvidenceScore;
   const entryLocationScore = Number(entryLocationDiagnostics.entryLocationScore || 0);
   const trendUpEntryQuality = {
     entryTimingCategory: entryLocationDiagnostics.entryLocationCategory,
@@ -1885,6 +1906,56 @@ function runAutoTraderTick() {
   autoRuntime.lastEntryLocationDiagnostics = entryLocationDiagnostics;
   autoRuntime.lastEntryEvidenceBreakdown = entryEvidenceDiagnostics.entryEvidenceBreakdown;
   autoRuntime.lastTrendUpEntryQuality = trendUpEntryQuality;
+  if (quickAdverseProneDiagnostics.prone) {
+    const blockedEntryEvidenceDiagnostics = {
+      ...entryEvidenceDiagnostics,
+      finalCategory: "QUICK_ADVERSE_PRONE_BLOCKED",
+      probeLowRateEligible: false,
+      entryEvidenceBreakdown: {
+        ...entryEvidenceDiagnostics.entryEvidenceBreakdown,
+        finalCategory: "QUICK_ADVERSE_PRONE_BLOCKED"
+      }
+    };
+    const finalReason = "quick adverse prone pattern blocked";
+    const decisionTrace = buildDecisionTrace({
+      signal,
+      finalAction: "HOLD",
+      finalReason,
+      mtf: multiTimeframeDiagnostics,
+      evidence: blockedEntryEvidenceDiagnostics,
+      entryLocation: entryLocationDiagnostics,
+      preTradeGuard,
+      reentryGuard,
+      executionTailGate,
+      quickAdverseProneDiagnostics
+    });
+    const noActionableSignalDiagnostics = buildNoActionableSignalDiagnostics({
+      signal,
+      sets: sharedSets,
+      mtf: multiTimeframeDiagnostics,
+      entryLocation: entryLocationDiagnostics,
+      evidence: blockedEntryEvidenceDiagnostics
+    });
+    noActionableSignalDiagnostics.category = "QUICK_ADVERSE_PRONE_BLOCKED";
+    noActionableSignalDiagnostics.reason = finalReason;
+    noActionableSignalDiagnostics.quickAdverseProneDiagnostics = quickAdverseProneDiagnostics;
+    autoRuntime.lastDecisionTrace = decisionTrace;
+    autoRuntime.lastNoActionableSignalDiagnostics = noActionableSignalDiagnostics;
+    autoRuntime.lastAction = "HOLD";
+    autoRuntime.lastSkipReason = finalReason;
+    autoRuntime.lastEntryEvidenceBreakdown = blockedEntryEvidenceDiagnostics.entryEvidenceBreakdown;
+    withState((s) => appendAudit(s, "auto.skip", {
+      reason: finalReason,
+      blockedStage: "quick_adverse_prone_guard",
+      quickAdverseProneDiagnostics,
+      entryEvidenceScore,
+      entryEvidenceBreakdown: blockedEntryEvidenceDiagnostics.entryEvidenceBreakdown,
+      entryLocationDiagnostics,
+      noActionableSignalDiagnostics,
+      decisionTrace
+    }));
+    return;
+  }
   if (lowEvidenceBlock && !probeLowRateApplied) {
     const decisionTrace = buildDecisionTrace({
       signal,
@@ -2433,17 +2504,6 @@ function runAutoTraderTick() {
     ticker,
     pipSize: RUNTIME_CONFIG.pipSize
   });
-  const quickAdverseRiskDiagnostics = buildQuickAdverseRiskDiagnostics({
-    side: signal.action === "BUY" ? "LONG" : "SHORT",
-    entryLocationDiagnostics,
-    multiTimeframeDiagnostics,
-    preTradeGuard,
-    entryEvidenceScore,
-    decisionCategory: entryEvidenceDiagnostics.finalCategory,
-    ticker,
-    executionProfile
-  });
-  const quickAdverseProneDiagnostics = buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics);
   const openedAt = new Date().toISOString();
   const position = {
     id: randomUUID(),
@@ -5046,7 +5106,7 @@ function buildQuickAdverseProneDiagnostics(quickAdverseRiskDiagnostics = {}) {
   };
 }
 
-function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contextValidation = {}, executionTailGate = {}, mtf = {}, entryLocation = {} } = {}) {
+function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contextValidation = {}, executionTailGate = {}, mtf = {}, entryLocation = {}, quickAdverseProneDiagnostics = null } = {}) {
   const signalStrength = clamp(safeNum(signal.confidence, preTradeGuard.signalStrength ?? 0.5), 0, 1);
   const edgeAfterBuffer = safeNum(preTradeGuard.edgeAfterBuffer, 0);
   const edgeScore = clamp(0.5 + edgeAfterBuffer / 1.4, 0, 1);
@@ -5055,7 +5115,7 @@ function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contex
   const overextendedPenalty = entryLocation.overextendedEntry ? 0.22 : 0;
   const contextValidationScore = contextValidation?.allowed === false ? 0.1 : 0.75;
   const regimeScore = String(signal.regime || "").toUpperCase() === "HIGH_VOLATILITY" ? 0.25 : 0.62;
-  const totalScore = clamp(
+  const rawTotalScore = clamp(
     regimeScore * 0.13
       + signalStrength * 0.20
       + edgeScore * 0.15
@@ -5070,6 +5130,12 @@ function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contex
     0,
     1
   );
+  const quickAdverseProne = Boolean(quickAdverseProneDiagnostics?.prone);
+  const quickAdversePronePenalty = quickAdverseProne ? 0.12 : 0;
+  const totalScore = clamp(rawTotalScore - quickAdversePronePenalty, 0, 1);
+  const finalCategoryBeforeQuickAdversePenalty = rawTotalScore >= 0.75 ? "STRONG_BASE"
+    : (rawTotalScore >= 0.60 ? "PROBE_CANDIDATE"
+      : (rawTotalScore >= 0.45 ? "WEAK_HOLD" : "BLOCKED"));
   let finalCategory = totalScore >= 0.75 ? "STRONG_BASE"
     : (totalScore >= 0.60 ? "PROBE_CANDIDATE"
       : (totalScore >= 0.45 ? "WEAK_HOLD" : "BLOCKED"));
@@ -5095,6 +5161,11 @@ function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contex
       overextendedPenalty,
       spreadPenalty: Number(spreadPenalty.toFixed(4)),
       executionStressPenalty: Number(executionStressPenalty.toFixed(4)),
+      quickAdversePronePenalty,
+      quickAdverseProne,
+      quickAdverseProneReason: quickAdverseProneDiagnostics?.reason || "",
+      totalScoreBeforeQuickAdversePenalty: Number(rawTotalScore.toFixed(4)),
+      finalCategoryBeforeQuickAdversePenalty,
       contextValidationScore,
       recentContextPfScore: 0,
       oosWfaScore: 0,
@@ -5106,7 +5177,7 @@ function buildEntryEvidenceDiagnostics({ signal = {}, preTradeGuard = {}, contex
   };
 }
 
-function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "", mtf = {}, evidence = {}, entryLocation = {}, preTradeGuard = {}, reentryGuard = {}, positionSizingDiagnostics = {}, executionTailGate = {} } = {}) {
+function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "", mtf = {}, evidence = {}, entryLocation = {}, preTradeGuard = {}, reentryGuard = {}, positionSizingDiagnostics = {}, executionTailGate = {}, quickAdverseProneDiagnostics = null } = {}) {
     return {
         timestamp: new Date().toISOString(),
         executionMode: normalizeAutoExecutionMode(loadState().settings?.autoExecutionMode),
@@ -5120,6 +5191,7 @@ function buildDecisionTrace({ signal = {}, finalAction = "HOLD", finalReason = "
             { name: "signal_generation", status: signal.action === "HOLD" ? "hold" : "pass", details: { rationale: signal.rationale || null } },
             { name: "multi_timeframe", status: safeNum(mtf.multiTimeframeScore, 0.5) >= 0.45 ? "pass" : "warning", details: mtf },
             { name: "entry_evidence", status: evidence.finalCategory === "STRONG_BASE" ? "pass" : (evidence.probeLowRateEligible ? "probe" : "blocked"), details: evidence.entryEvidenceBreakdown || {} },
+            { name: "quick_adverse_prone_guard", status: quickAdverseProneDiagnostics?.prone ? "blocked" : "pass", details: quickAdverseProneDiagnostics || {} },
             { name: "trend_up_entry_quality", status: entryLocation.lateEntryDetected ? "warning" : "pass", details: entryLocation },
             { name: "pre_trade_guard", status: preTradeGuard.allowed === false ? "blocked" : "pass", details: preTradeGuard },
             { name: "reentry_guard", status: reentryGuard.blocked ? (reentryGuard.downgradedToProbeLowRate ? "probe" : "blocked") : "pass", details: reentryGuard },

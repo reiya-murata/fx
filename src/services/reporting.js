@@ -346,6 +346,25 @@ function quickAdverseProneReasonOf(trade = {}) {
   return quickAdverseProneDiagnosticsOf(trade).reason || "UNKNOWN";
 }
 
+function categoryFromEntryEvidenceScore(value) {
+  const v = Number(value);
+  if (!Number.isFinite(v)) return "UNKNOWN";
+  if (v >= 0.75) return "STRONG_BASE";
+  if (v >= 0.60) return "PROBE_CANDIDATE";
+  if (v >= 0.45) return "WEAK_HOLD";
+  return "BLOCKED";
+}
+
+function decisionCategoryAfterQuickAdversePenaltyOf(trade = {}) {
+  const breakdown = trade.entryEvidenceBreakdown || {};
+  if (breakdown.finalCategoryBeforeQuickAdversePenalty) {
+    return breakdown.finalCategory || trade.decisionCategory || "UNKNOWN";
+  }
+  const score = firstFinite(trade.entryEvidenceScore, breakdown.totalScore);
+  const prone = quickAdverseProneDiagnosticsOf(trade).prone;
+  return categoryFromEntryEvidenceScore(score === null ? null : score - (prone ? 0.12 : 0));
+}
+
 function quickAdverseTopPatterns(trades, initialBalance = 1_000_000) {
   return Object.entries(summarizeByFn(trades, (t) => {
     const d = quickAdverseRiskDiagnosticsOf(t);
@@ -527,6 +546,8 @@ function summarizeLogicSplit(trades, initialBalance = 1_000_000) {
       quickAdverseTopPatterns: quickAdverseTopPatterns(quickAdverseNewLogicTrades, initialBalance),
       byQuickAdverseProne: summarizeByFn(newLogicTrades, quickAdverseProneBandOf, initialBalance),
       byQuickAdverseProneReason: summarizeByFn(newLogicTrades, quickAdverseProneReasonOf, initialBalance),
+      byQuickAdverseProneAfterPenalty: summarizeCrossByFn(newLogicTrades, quickAdverseProneBandOf, decisionCategoryAfterQuickAdversePenaltyOf, initialBalance),
+      byDecisionCategoryAfterQuickAdversePenalty: summarizeByFn(newLogicTrades, decisionCategoryAfterQuickAdversePenaltyOf, initialBalance),
       byEntryLocationCategoryAndProne: summarizeCrossByFn(newLogicTrades, entryLocationCategoryOf, quickAdverseProneBandOf, initialBalance),
       byDecisionCategoryAndProne: summarizeCrossByFn(newLogicTrades, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", quickAdverseProneBandOf, initialBalance),
       byDecisionCategory: summarizeByFn(newLogicTrades, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", initialBalance),
@@ -1337,6 +1358,7 @@ export function buildMonthlyPerformanceReport(state, now = new Date()) {
   const allSkips = (Array.isArray(state?.auditLogs) ? state.auditLogs : [])
     .filter((a) => a.event === "auto.skip");
   const allLogs = Array.isArray(state?.auditLogs) ? state.auditLogs : [];
+  const quickAdverseProneBlockedSkips = allSkips.filter((a) => a.blockedStage === "quick_adverse_prone_guard" || a.noActionableSignalDiagnostics?.category === "QUICK_ADVERSE_PRONE_BLOCKED");
   const split = splitOos(allAuto, 0.3);
   const base = summarizeAdvanced(allAuto, init);
   const positionSummary = summarizePositions(allAuto, init);
@@ -1489,7 +1511,11 @@ export function buildMonthlyPerformanceReport(state, now = new Date()) {
     newLogicSummary: logicSplit.newLogicSummary,
     newLogicLooseSummary: logicSplit.newLogicLooseSummary,
     newLogicStrictSummary: logicSplit.newLogicStrictSummary,
-    newLogicWinRateDiagnostics: logicSplit.newLogicWinRateDiagnostics,
+    newLogicWinRateDiagnostics: {
+      ...logicSplit.newLogicWinRateDiagnostics,
+      quickAdverseProneBlockedCount: quickAdverseProneBlockedSkips.length,
+      quickAdverseProneBlockedReasons: groupedCount(quickAdverseProneBlockedSkips, (a) => a.reason || a.noActionableSignalDiagnostics?.reason || "UNKNOWN")
+    },
     legacyLogicSummary: logicSplit.legacyLogicSummary,
     missingDiagnostics: logicSplit.missingDiagnostics,
     slippageAdjustedTradeRowPF: monthlySlippageAdjusted.profitFactor,
@@ -1544,6 +1570,8 @@ export function buildMonthlyPerformanceReport(state, now = new Date()) {
     quickAdverseTopPatterns: quickAdverseTopPatterns(allAuto.filter(isQuickAdverseExit), init),
     byQuickAdverseProne: summarizeByFn(allAuto, quickAdverseProneBandOf, init),
     byQuickAdverseProneReason: summarizeByFn(allAuto, quickAdverseProneReasonOf, init),
+    byQuickAdverseProneAfterPenalty: summarizeCrossByFn(allAuto, quickAdverseProneBandOf, decisionCategoryAfterQuickAdversePenaltyOf, init),
+    byDecisionCategoryAfterQuickAdversePenalty: summarizeByFn(allAuto, decisionCategoryAfterQuickAdversePenaltyOf, init),
     byEntryLocationCategoryAndProne: summarizeCrossByFn(allAuto, entryLocationCategoryOf, quickAdverseProneBandOf, init),
     byDecisionCategoryAndProne: summarizeCrossByFn(allAuto, (t) => t.decisionCategory || t.entryEvidenceBreakdown?.finalCategory || "UNKNOWN", quickAdverseProneBandOf, init),
     byQuickAdverseRiskScoreAndExitReason: summarizeCrossByFn(allAuto, (t) => scoreBandForLogic(t, quickAdverseRiskScoreOf(t)), (t) => t.exitReason || "UNKNOWN", init),
